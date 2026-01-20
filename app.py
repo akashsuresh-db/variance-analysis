@@ -31,6 +31,7 @@ USE_BACKEND = bool(API_BASE)
 DATA_CACHE_TTL = 120
 DEBUG_LOGS = os.getenv("DEBUG_LOGS", "false").lower() == "true"
 PGUSER_FROM_OAUTH = os.getenv("PGUSER_FROM_OAUTH", "true").lower() == "true"
+PGUSER_FROM_SP = os.getenv("PGUSER_FROM_SP", "true").lower() == "true"
 
 logging.basicConfig(level=logging.INFO if DEBUG_LOGS else logging.WARNING)
 logger = logging.getLogger("variance_app")
@@ -103,7 +104,14 @@ def get_pg_env_config() -> dict | None:
     if not host or not user or not dbname:
         return None
 
-    if PGUSER_FROM_OAUTH and not get_service_principal_client():
+    sp_client = get_service_principal_client()
+    if sp_client and PGUSER_FROM_SP:
+        client_id = os.getenv("DATABRICKS_CLIENT_ID")
+        if client_id and client_id != user:
+            if DEBUG_LOGS:
+                logger.info("Overriding PGUSER to service principal client id")
+            user = client_id
+    elif PGUSER_FROM_OAUTH:
         try:
             oauth_user = workspace_client.current_user.me().user_name
             if oauth_user and oauth_user != user:
