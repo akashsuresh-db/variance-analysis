@@ -12,7 +12,6 @@ import pandas as pd
 import requests
 import streamlit as st
 from dotenv import load_dotenv
-from openai import OpenAI
 from requests import RequestException
 from sqlalchemy import create_engine, text
 
@@ -319,18 +318,48 @@ def stream_llm_tokens(prompt: str):
         yield "Summary unavailable."
         return
     host, endpoint_name = endpoint
-    client = OpenAI(api_key=token, base_url=f"{host}/serving-endpoints")
     try:
-        stream = client.chat.completions.create(
-            model=endpoint_name,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=2000,
+        try:
+            from openai import OpenAI
+
+            client = OpenAI(api_key=token, base_url=f"{host}/serving-endpoints")
+            stream = client.chat.completions.create(
+                model=endpoint_name,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=2000,
+                stream=True,
+            )
+            for event in stream:
+                delta = event.choices[0].delta if event.choices else None
+                if delta and delta.content:
+                    yield delta.content
+            return
+        except ImportError:
+            pass
+
+        response = requests.post(
+            f"{host}/serving-endpoints/{endpoint_name}/invocations",
+            headers={"Authorization": f"Bearer {token}"},
+            json={"messages": [{"role": "user", "content": prompt}], "stream": True},
             stream=True,
+            timeout=90,
         )
-        for event in stream:
-            delta = event.choices[0].delta if event.choices else None
-            if delta and delta.content:
-                yield delta.content
+        response.raise_for_status()
+        for line in response.iter_lines(decode_unicode=True):
+            if not line:
+                continue
+            if line.startswith("data: "):
+                data = line[len("data: ") :].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    payload = json.loads(data)
+                    delta = payload.get("choices", [{}])[0].get("delta", {})
+                    content = delta.get("content")
+                    if content:
+                        yield content
+                except json.JSONDecodeError:
+                    continue
         return
     except Exception:
         yield "Summary unavailable."
