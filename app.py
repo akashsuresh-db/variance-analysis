@@ -15,6 +15,7 @@ import pandas as pd
 import requests
 import streamlit as st
 from dotenv import load_dotenv
+from databricks.sdk import WorkspaceClient
 from requests import RequestException
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), "config", "env.local")
@@ -28,6 +29,11 @@ DEBUG_LOGS = os.getenv("DEBUG_LOGS", "false").lower() == "true"
 
 logging.basicConfig(level=logging.INFO if DEBUG_LOGS else logging.WARNING)
 logger = logging.getLogger("variance_app")
+
+workspace_client = WorkspaceClient()
+postgres_password = None
+last_password_refresh = 0
+connection_pool = None
 
 
 def parse_jdbc_url() -> dict:
@@ -68,20 +74,75 @@ def parse_jdbc_url() -> dict:
     }
 
 
+def get_pg_env_config() -> dict | None:
+    host = os.getenv("PGHOST")
+    user = os.getenv("PGUSER")
+    dbname = os.getenv("PGDATABASE")
+    port = int(os.getenv("PGPORT", "5432"))
+    sslmode = os.getenv("PGSSLMODE", "require")
+    appname = os.getenv("PGAPPNAME")
+
+    if not host or not user or not dbname:
+        return None
+
+    return {
+        "host": host,
+        "user": user,
+        "dbname": dbname,
+        "port": port,
+        "sslmode": sslmode,
+        "application_name": appname,
+    }
+
+
+def refresh_oauth_token() -> bool:
+    global postgres_password, last_password_refresh
+    if postgres_password is None or time.time() - last_password_refresh > 900:
+        try:
+            postgres_password = workspace_client.config.oauth_token().access_token
+            last_password_refresh = time.time()
+            if DEBUG_LOGS:
+                logger.info("Refreshed Postgres OAuth token")
+        except Exception:
+            logger.exception("Failed to refresh Postgres OAuth token")
+            return False
+    return True
+
+
 @st.cache_resource
 def get_connection():
     try:
         import psycopg2
+        from psycopg2 import pool
     except ImportError as exc:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "psycopg2-binary"])
         import psycopg2  # type: ignore[no-redef]
+        from psycopg2 import pool  # type: ignore[no-redef]
 
-    cfg = parse_jdbc_url()
-    if DEBUG_LOGS:
-        logger.info("Connecting to Postgres host=%s db=%s user=%s", cfg["host"], cfg["dbname"], cfg["user"])
-    conn = psycopg2.connect(**cfg)
-    conn.autocommit = True
-    return conn
+    global connection_pool
+
+    pg_env = get_pg_env_config()
+    if pg_env:
+        if not refresh_oauth_token():
+            raise RuntimeError("Failed to refresh OAuth token for Postgres")
+        conn_string = (
+            f"dbname={pg_env['dbname']} user={pg_env['user']} password={postgres_password} "
+            f"host={pg_env['host']} port={pg_env['port']} sslmode={pg_env['sslmode']} "
+            f"application_name={pg_env.get('application_name') or ''}"
+        )
+    else:
+        cfg = parse_jdbc_url()
+        conn_string = (
+            f"dbname={cfg['dbname']} user={cfg['user']} password={cfg['password']} "
+            f"host={cfg['host']} port={cfg['port']} sslmode={cfg['sslmode']}"
+        )
+
+    if connection_pool is None:
+        if DEBUG_LOGS:
+            logger.info("Creating Postgres connection pool")
+        connection_pool = pool.SimpleConnectionPool(2, 10, conn_string)
+
+    return connection_pool.getconn()
 
 
 def run_query(query: str, params: tuple | list | None = None):
@@ -95,6 +156,12 @@ def run_query(query: str, params: tuple | list | None = None):
     except Exception:
         logger.exception("Query failed")
         raise
+    finally:
+        try:
+            if connection_pool is not None:
+                connection_pool.putconn(conn)
+        except Exception:
+            logger.exception("Failed to return connection to pool")
 
 
 def get_table_name() -> str:
