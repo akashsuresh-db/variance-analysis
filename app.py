@@ -41,6 +41,19 @@ last_password_refresh = 0
 connection_pool = None
 
 
+def get_service_principal_client() -> WorkspaceClient | None:
+    client_id = os.getenv("DATABRICKS_CLIENT_ID")
+    client_secret = os.getenv("DATABRICKS_CLIENT_SECRET")
+    host = os.getenv("DATABRICKS_HOST")
+    if not client_id or not client_secret or not host:
+        return None
+    try:
+        return WorkspaceClient(host=host, client_id=client_id, client_secret=client_secret)
+    except Exception:
+        logger.exception("Failed to initialize service principal client")
+        return None
+
+
 def parse_jdbc_url() -> dict:
     jdbc_url = os.getenv("JDBC_URL")
     if jdbc_url:
@@ -90,7 +103,7 @@ def get_pg_env_config() -> dict | None:
     if not host or not user or not dbname:
         return None
 
-    if PGUSER_FROM_OAUTH:
+    if PGUSER_FROM_OAUTH and not get_service_principal_client():
         try:
             oauth_user = workspace_client.current_user.me().user_name
             if oauth_user and oauth_user != user:
@@ -114,7 +127,13 @@ def refresh_oauth_token() -> bool:
     global postgres_password, last_password_refresh
     if postgres_password is None or time.time() - last_password_refresh > 900:
         try:
-            postgres_password = workspace_client.config.oauth_token().access_token
+            sp_client = get_service_principal_client()
+            if sp_client:
+                postgres_password = sp_client.config.oauth_token().access_token
+                if DEBUG_LOGS:
+                    logger.info("Using service principal token for Postgres")
+            else:
+                postgres_password = workspace_client.config.oauth_token().access_token
             last_password_refresh = time.time()
             if DEBUG_LOGS:
                 logger.info("Refreshed Postgres OAuth token")
