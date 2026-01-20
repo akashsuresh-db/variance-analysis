@@ -43,10 +43,28 @@ connection_pool = None
 
 
 def get_service_principal_client() -> WorkspaceClient | None:
+    host = os.getenv("DATABRICKS_HOST")
+    if not host:
+        return None
+
+    azure_client_id = os.getenv("DATABRICKS_AZURE_CLIENT_ID")
+    azure_client_secret = os.getenv("DATABRICKS_AZURE_CLIENT_SECRET")
+    azure_tenant_id = os.getenv("DATABRICKS_AZURE_TENANT_ID")
+    if azure_client_id and azure_client_secret and azure_tenant_id:
+        try:
+            return WorkspaceClient(
+                host=host,
+                azure_client_id=azure_client_id,
+                azure_client_secret=azure_client_secret,
+                azure_tenant_id=azure_tenant_id,
+            )
+        except Exception:
+            logger.exception("Failed to initialize Azure SP client")
+            return None
+
     client_id = os.getenv("DATABRICKS_CLIENT_ID")
     client_secret = os.getenv("DATABRICKS_CLIENT_SECRET")
-    host = os.getenv("DATABRICKS_HOST")
-    if not client_id or not client_secret or not host:
+    if not client_id or not client_secret:
         return None
     try:
         return WorkspaceClient(host=host, client_id=client_id, client_secret=client_secret)
@@ -121,14 +139,7 @@ def refresh_oauth_token() -> bool:
     if postgres_password is None or time.time() - last_password_refresh > 900:
         try:
             if USE_SP_AUTH:
-                sp_client = get_service_principal_client()
-                if not sp_client:
-                    raise RuntimeError("Service principal client not configured")
-                pg_env = get_pg_env_config()
-                if not pg_env or not pg_env.get("instance_name"):
-                    raise RuntimeError("PGINSTANCE_NAME not configured for SP auth")
-                credential = generate_db_credential(sp_client, pg_env["instance_name"])
-                postgres_password = credential["token"]
+                postgres_password = get_db_oauth_token()
                 if DEBUG_LOGS:
                     logger.info("Using service principal database credential")
             else:
@@ -142,6 +153,18 @@ def refresh_oauth_token() -> bool:
             logger.exception("Failed to refresh Postgres OAuth token")
             return False
     return True
+
+
+@st.cache_resource(ttl=55 * 60)
+def get_db_oauth_token() -> str:
+    sp_client = get_service_principal_client()
+    if not sp_client:
+        raise RuntimeError("Service principal client not configured")
+    pg_env = get_pg_env_config()
+    if not pg_env or not pg_env.get("instance_name"):
+        raise RuntimeError("PGINSTANCE_NAME not configured for SP auth")
+    credential = generate_db_credential(sp_client, pg_env["instance_name"])
+    return credential["token"]
 
 
 def generate_db_credential(client: WorkspaceClient, instance_name: str) -> dict:

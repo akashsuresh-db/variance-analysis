@@ -2,3 +2,7 @@ streamlit
 python-dotenv
 requests
 pandas
+sqlalchemy
+psycopg2-binary
+databricks-sdk>=0.73.0
+openai
