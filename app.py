@@ -3,17 +3,18 @@ import json
 import os
 import queue
 import re
+import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, unquote, urlparse
 
 import pandas as pd
 import requests
 import streamlit as st
 from dotenv import load_dotenv
 from requests import RequestException
-from sqlalchemy import create_engine, text
 
 ENV_PATH = os.path.join(os.path.dirname(__file__), "config", "env.local")
 if os.path.exists(ENV_PATH):
@@ -24,30 +25,44 @@ USE_BACKEND = bool(API_BASE)
 DATA_CACHE_TTL = 120
 
 
-def build_db_url() -> str:
+def parse_jdbc_url() -> dict:
     jdbc_url = os.getenv("JDBC_URL")
-    if jdbc_url:
-        if not jdbc_url.startswith("jdbc:postgresql://"):
-            raise RuntimeError("JDBC_URL must start with jdbc:postgresql://")
-        return jdbc_url.replace("jdbc:postgresql://", "postgresql+psycopg2://", 1)
+    if not jdbc_url or not jdbc_url.startswith("jdbc:postgresql://"):
+        raise RuntimeError("JDBC_URL must start with jdbc:postgresql://")
 
-    host = os.getenv("DB_HOST")
-    user = os.getenv("DB_USER")
-    password = os.getenv("DB_PASSWORD", "")
-    name = os.getenv("DB_NAME")
-    port = os.getenv("DB_PORT", "5432")
-    sslmode = os.getenv("DB_SSLMODE", "require")
-
-    if not host or not user or not name:
-        raise RuntimeError("JDBC_URL or DB_HOST/DB_USER/DB_NAME must be set")
-
-    password_part = f":{password}" if password else ""
-    return f"postgresql+psycopg2://{user}{password_part}@{host}:{port}/{name}?sslmode={sslmode}"
+    parsed = urlparse(jdbc_url.replace("jdbc:", "", 1))
+    params = parse_qs(parsed.query)
+    return {
+        "host": parsed.hostname,
+        "port": parsed.port or 5432,
+        "dbname": parsed.path.lstrip("/"),
+        "user": unquote(parsed.username or ""),
+        "password": unquote(parsed.password or ""),
+        "sslmode": params.get("sslmode", ["require"])[0],
+    }
 
 
 @st.cache_resource
-def get_engine():
-    return create_engine(build_db_url(), pool_pre_ping=True)
+def get_connection():
+    try:
+        import psycopg2
+    except ImportError as exc:
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+        import psycopg2  # type: ignore[no-redef]
+
+    cfg = parse_jdbc_url()
+    conn = psycopg2.connect(**cfg)
+    conn.autocommit = True
+    return conn
+
+
+def run_query(query: str, params: tuple | list | None = None):
+    conn = get_connection()
+    with conn.cursor() as cur:
+        cur.execute(query, params or [])
+        if cur.description:
+            return cur.fetchall()
+        return []
 
 
 def get_table_name() -> str:
@@ -96,38 +111,37 @@ def fetch_json(
 def get_accounts():
     if USE_BACKEND:
         return fetch_json("/filters/accounts", fallback=[])
-    query = text(f"SELECT DISTINCT account_name FROM {get_table_name()} ORDER BY account_name")
-    with get_engine().connect() as conn:
-        rows = conn.execute(query).fetchall()
+    rows = run_query(
+        f"SELECT DISTINCT account_name FROM {get_table_name()} ORDER BY account_name"
+    )
     return [row[0] for row in rows]
 
 
 def get_months():
     if USE_BACKEND:
         return fetch_json("/filters/months", fallback=[])
-    query = text(
+    query = (
         f"""
         SELECT DISTINCT to_char(date_trunc('month', sale_date), 'YYYY-MM') AS month_key
         FROM {get_table_name()}
         ORDER BY month_key DESC
         """
     )
-    with get_engine().connect() as conn:
-        rows = conn.execute(query).fetchall()
+    rows = run_query(query)
     return [row[0] for row in rows]
 
 
 def fetch_account_rollup(month: str, accounts: list[str]):
     account_filter = ""
-    params: dict[str, object] = {"month": month}
+    params: list[object] = [month]
     if accounts:
-        account_filter = "AND account_name = ANY(:accounts)"
-        params["accounts"] = accounts
+        account_filter = "AND account_name = ANY(%s)"
+        params.append(accounts)
 
-    query = text(
+    query = (
         f"""
         WITH params AS (
-            SELECT to_date(:month || '-01', 'YYYY-MM-DD') AS selected_month
+            SELECT to_date(%s || '-01', 'YYYY-MM-DD') AS selected_month
         )
         SELECT
             account_name,
@@ -146,13 +160,11 @@ def fetch_account_rollup(month: str, accounts: list[str]):
         ORDER BY account_name
         """
     )
-    with get_engine().connect() as conn:
-        rows = conn.execute(query, params).fetchall()
-    return rows
+    return run_query(query, params)
 
 
 def fetch_monthly_rollup():
-    query = text(
+    query = (
         f"""
         SELECT
             account_name,
@@ -163,9 +175,7 @@ def fetch_monthly_rollup():
         ORDER BY account_name, month_key
         """
     )
-    with get_engine().connect() as conn:
-        rows = conn.execute(query).fetchall()
-    return rows
+    return run_query(query)
 
 
 def get_metrics(month: str, accounts_key: str):
