@@ -163,7 +163,25 @@ def get_db_oauth_token() -> str:
     pg_env = get_pg_env_config()
     if not pg_env or not pg_env.get("instance_name"):
         raise RuntimeError("PGINSTANCE_NAME not configured for SP auth")
-    credential = generate_db_credential(sp_client, pg_env["instance_name"])
+    instance_name = pg_env["instance_name"]
+    expected_sp_id = os.getenv("DATABRICKS_CLIENT_ID") or os.getenv("DATABRICKS_AZURE_CLIENT_ID")
+    try:
+        current_identity = sp_client.current_user.me().user_name
+        if expected_sp_id and current_identity != expected_sp_id:
+            raise RuntimeError(
+                f"SDK identity mismatch: expected {expected_sp_id}, got {current_identity}"
+            )
+    except Exception:
+        logger.exception("Failed to verify SP identity")
+        raise
+
+    try:
+        sp_client.database.get_database_instance(name=instance_name)
+    except Exception:
+        logger.exception("Database instance not found or inaccessible: %s", instance_name)
+        raise
+
+    credential = generate_db_credential(sp_client, instance_name)
     return credential["token"]
 
 
