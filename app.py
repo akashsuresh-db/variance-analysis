@@ -127,11 +127,8 @@ def refresh_oauth_token() -> bool:
                 pg_env = get_pg_env_config()
                 if not pg_env or not pg_env.get("instance_name"):
                     raise RuntimeError("PGINSTANCE_NAME not configured for SP auth")
-                credential = sp_client.database.generate_database_credential(
-                    request_id=str(uuid.uuid4()),
-                    instance_names=[pg_env["instance_name"]],
-                )
-                postgres_password = credential.token
+                credential = generate_db_credential(sp_client, pg_env["instance_name"])
+                postgres_password = credential["token"]
                 if DEBUG_LOGS:
                     logger.info("Using service principal database credential")
             else:
@@ -145,6 +142,23 @@ def refresh_oauth_token() -> bool:
             logger.exception("Failed to refresh Postgres OAuth token")
             return False
     return True
+
+
+def generate_db_credential(client: WorkspaceClient, instance_name: str) -> dict:
+    request_id = str(uuid.uuid4())
+    database_api = getattr(client, "database", None)
+    if database_api and hasattr(database_api, "generate_database_credential"):
+        cred = database_api.generate_database_credential(
+            request_id=request_id,
+            instance_names=[instance_name],
+        )
+        return {"token": cred.token}
+    res = client.api_client.do(
+        "POST",
+        "/api/2.0/database/credentials",
+        body={"request_id": request_id, "instance_names": [instance_name]},
+    )
+    return res
 
 
 @st.cache_resource
