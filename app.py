@@ -212,30 +212,31 @@ def get_connection():
         import psycopg2  # type: ignore[no-redef]
         from psycopg2 import pool  # type: ignore[no-redef]
 
-    global connection_pool
-
     pg_env = get_pg_env_config()
     if pg_env:
         if not refresh_oauth_token():
             raise RuntimeError("Failed to refresh OAuth token for Postgres")
-        conn_string = (
-            f"dbname={pg_env['dbname']} user={pg_env['user']} password={postgres_password} "
-            f"host={pg_env['host']} port={pg_env['port']} sslmode={pg_env['sslmode']} "
-            f"application_name={pg_env.get('application_name') or ''}"
-        )
-    else:
-        cfg = parse_jdbc_url()
-        conn_string = (
-            f"dbname={cfg['dbname']} user={cfg['user']} password={cfg['password']} "
-            f"host={cfg['host']} port={cfg['port']} sslmode={cfg['sslmode']}"
-        )
-
-    if connection_pool is None:
         if DEBUG_LOGS:
-            logger.info("Creating Postgres connection pool")
-        connection_pool = pool.SimpleConnectionPool(2, 10, conn_string)
+            logger.info("Connecting to Postgres as %s", pg_env["user"])
+        return psycopg2.connect(
+            dbname=pg_env["dbname"],
+            user=pg_env["user"],
+            password=postgres_password,
+            host=pg_env["host"],
+            port=pg_env["port"],
+            sslmode=pg_env["sslmode"],
+            application_name=pg_env.get("application_name") or "",
+        )
 
-    return connection_pool.getconn()
+    cfg = parse_jdbc_url()
+    return psycopg2.connect(
+        dbname=cfg["dbname"],
+        user=cfg["user"],
+        password=cfg["password"],
+        host=cfg["host"],
+        port=cfg["port"],
+        sslmode=cfg["sslmode"],
+    )
 
 
 def run_query(query: str, params: tuple | list | None = None):
@@ -251,10 +252,9 @@ def run_query(query: str, params: tuple | list | None = None):
         raise
     finally:
         try:
-            if connection_pool is not None:
-                connection_pool.putconn(conn)
+            conn.close()
         except Exception:
-            logger.exception("Failed to return connection to pool")
+            logger.exception("Failed to close connection")
 
 
 def get_table_name() -> str:
@@ -522,9 +522,18 @@ def stream_llm_tokens(prompt: str):
     endpoint = get_serving_endpoint()
     token = os.getenv("DATABRICKS_TOKEN")
     if not endpoint or not token:
-        logger.warning("LLM stream skipped: missing endpoint or token")
-        yield "Summary unavailable."
-        return
+        sp_client = get_service_principal_client()
+        if sp_client:
+            try:
+                token = sp_client.config.oauth_token().access_token
+                if DEBUG_LOGS:
+                    logger.info("Using service principal token for LLM")
+            except Exception:
+                logger.exception("Failed to obtain SP token for LLM")
+        if not endpoint or not token:
+            logger.warning("LLM stream skipped: missing endpoint or token")
+            yield "Summary unavailable."
+            return
     host, endpoint_name = endpoint
     try:
         try:
