@@ -18,14 +18,19 @@ from dotenv import load_dotenv
 from databricks.sdk import WorkspaceClient
 from requests import RequestException
 
-ENV_PATH = os.path.join(os.path.dirname(__file__), "config", "env.local")
-if os.path.exists(ENV_PATH):
-    load_dotenv(ENV_PATH)
+ENV_PATHS = [
+    os.path.join(os.path.dirname(__file__), "config", "env.app"),
+    os.path.join(os.path.dirname(__file__), "config", "env.local"),
+]
+for env_path in ENV_PATHS:
+    if os.path.exists(env_path):
+        load_dotenv(env_path, override=True)
 
 API_BASE = os.getenv("API_BASE_URL")
 USE_BACKEND = bool(API_BASE)
 DATA_CACHE_TTL = 120
 DEBUG_LOGS = os.getenv("DEBUG_LOGS", "false").lower() == "true"
+PGUSER_FROM_OAUTH = os.getenv("PGUSER_FROM_OAUTH", "true").lower() == "true"
 
 logging.basicConfig(level=logging.INFO if DEBUG_LOGS else logging.WARNING)
 logger = logging.getLogger("variance_app")
@@ -84,6 +89,16 @@ def get_pg_env_config() -> dict | None:
 
     if not host or not user or not dbname:
         return None
+
+    if PGUSER_FROM_OAUTH:
+        try:
+            oauth_user = workspace_client.current_user.me().user_name
+            if oauth_user and oauth_user != user:
+                if DEBUG_LOGS:
+                    logger.info("Overriding PGUSER to OAuth identity: %s", oauth_user)
+                user = oauth_user
+        except Exception:
+            logger.exception("Failed to resolve OAuth user; using PGUSER env")
 
     return {
         "host": host,
