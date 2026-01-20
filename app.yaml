@@ -15,3 +15,13 @@ env:
     value: "true"
   - name: SERVING_ENDPOINT_NAME
     valueFrom: "serving-endpoint"
+  - name: PGHOST
+    value: "instance-d5242df0-4f16-4622-bd4f-769a93c882ee.database.cloud.databricks.com"
+  - name: PGUSER
+    value: "akash.s@databricks.com"
+  - name: PGDATABASE
+    value: "acndemo"
+  - name: PGPORT
+    value: "5432"
+  - name: PGSSLMODE
+    value: "require"
