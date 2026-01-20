@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from urllib.parse import parse_qs, unquote, urlparse
@@ -30,9 +31,7 @@ API_BASE = os.getenv("API_BASE_URL")
 USE_BACKEND = bool(API_BASE)
 DATA_CACHE_TTL = 120
 DEBUG_LOGS = os.getenv("DEBUG_LOGS", "false").lower() == "true"
-PGUSER_FROM_OAUTH = os.getenv("PGUSER_FROM_OAUTH", "true").lower() == "true"
-PGUSER_FROM_SP = os.getenv("PGUSER_FROM_SP", "false").lower() == "true"
-FORCE_PGUSER = os.getenv("FORCE_PGUSER", "")
+USE_SP_AUTH = os.getenv("USE_SP_AUTH", "true").lower() == "true"
 
 logging.basicConfig(level=logging.INFO if DEBUG_LOGS else logging.WARNING)
 logger = logging.getLogger("variance_app")
@@ -101,32 +100,10 @@ def get_pg_env_config() -> dict | None:
     port = int(os.getenv("PGPORT", "5432"))
     sslmode = os.getenv("PGSSLMODE", "require")
     appname = os.getenv("PGAPPNAME")
+    instance_name = os.getenv("PGINSTANCE_NAME")
 
     if not host or not user or not dbname:
         return None
-
-    if FORCE_PGUSER:
-        if DEBUG_LOGS:
-            logger.info("Using forced PGUSER: %s", FORCE_PGUSER)
-        user = FORCE_PGUSER
-    else:
-        sp_client = get_service_principal_client()
-        if sp_client and PGUSER_FROM_SP:
-            client_id = os.getenv("DATABRICKS_CLIENT_ID")
-            if not client_id:
-                raise RuntimeError("DATABRICKS_CLIENT_ID must be set for service principal auth")
-            if DEBUG_LOGS:
-                logger.info("Using service principal client id for PGUSER")
-            user = client_id
-        elif PGUSER_FROM_OAUTH:
-            try:
-                oauth_user = workspace_client.current_user.me().user_name
-                if oauth_user and oauth_user != user:
-                    if DEBUG_LOGS:
-                        logger.info("Overriding PGUSER to OAuth identity: %s", oauth_user)
-                    user = oauth_user
-            except Exception:
-                logger.exception("Failed to resolve OAuth user; using PGUSER env")
 
     return {
         "host": host,
@@ -135,6 +112,7 @@ def get_pg_env_config() -> dict | None:
         "port": port,
         "sslmode": sslmode,
         "application_name": appname,
+        "instance_name": instance_name,
     }
 
 
@@ -142,9 +120,24 @@ def refresh_oauth_token() -> bool:
     global postgres_password, last_password_refresh
     if postgres_password is None or time.time() - last_password_refresh > 900:
         try:
-            postgres_password = workspace_client.config.oauth_token().access_token
-            if DEBUG_LOGS:
-                logger.info("Using user OAuth token for Postgres")
+            if USE_SP_AUTH:
+                sp_client = get_service_principal_client()
+                if not sp_client:
+                    raise RuntimeError("Service principal client not configured")
+                pg_env = get_pg_env_config()
+                if not pg_env or not pg_env.get("instance_name"):
+                    raise RuntimeError("PGINSTANCE_NAME not configured for SP auth")
+                credential = sp_client.database.generate_database_credential(
+                    request_id=str(uuid.uuid4()),
+                    instance_names=[pg_env["instance_name"]],
+                )
+                postgres_password = credential.token
+                if DEBUG_LOGS:
+                    logger.info("Using service principal database credential")
+            else:
+                postgres_password = workspace_client.config.oauth_token().access_token
+                if DEBUG_LOGS:
+                    logger.info("Using user OAuth token for Postgres")
             last_password_refresh = time.time()
             if DEBUG_LOGS:
                 logger.info("Refreshed Postgres OAuth token")

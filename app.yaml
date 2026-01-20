@@ -18,16 +18,16 @@ env:
   - name: PGHOST
     value: "instance-d5242df0-4f16-4622-bd4f-769a93c882ee.database.cloud.databricks.com"
   - name: PGUSER
-    value: "akash.s@databricks.com"
+    value: "96819ea3-13c7-4975-9fa2-a204141ef034"
   - name: PGDATABASE
     value: "acndemo"
+  - name: PGINSTANCE_NAME
+    value: "instance-d5242df0-4f16-4622-bd4f-769a93c882ee"
   - name: PGPORT
     value: "5432"
   - name: PGSSLMODE
     value: "require"
   - name: PGAPPNAME
     value: "variance_analysis"
-  - name: PGUSER_FROM_OAUTH
+  - name: USE_SP_AUTH
     value: "true"
-  - name: FORCE_PGUSER
-    value: "akash.s@databricks.com"
