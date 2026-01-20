@@ -52,7 +52,7 @@ def get_connection():
     try:
         import psycopg2
     except ImportError as exc:
-        subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", "requirements.txt"])
+        subprocess.check_call([sys.executable, "-m", "pip", "install", "psycopg2-binary"])
         import psycopg2  # type: ignore[no-redef]
 
     cfg = parse_jdbc_url()
