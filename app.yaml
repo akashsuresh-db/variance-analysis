@@ -29,3 +29,5 @@ env:
     value: "variance_analysis"
   - name: PGUSER_FROM_OAUTH
     value: "true"
+  - name: FORCE_PGUSER
+    value: "akash.s@databricks.com"
