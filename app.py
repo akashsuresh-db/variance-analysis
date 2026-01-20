@@ -1,5 +1,6 @@
 import html
 import json
+import logging
 import os
 import queue
 import re
@@ -23,6 +24,10 @@ if os.path.exists(ENV_PATH):
 API_BASE = os.getenv("API_BASE_URL")
 USE_BACKEND = bool(API_BASE)
 DATA_CACHE_TTL = 120
+DEBUG_LOGS = os.getenv("DEBUG_LOGS", "false").lower() == "true"
+
+logging.basicConfig(level=logging.INFO if DEBUG_LOGS else logging.WARNING)
+logger = logging.getLogger("variance_app")
 
 
 def parse_jdbc_url() -> dict:
@@ -51,6 +56,8 @@ def get_connection():
         import psycopg2  # type: ignore[no-redef]
 
     cfg = parse_jdbc_url()
+    if DEBUG_LOGS:
+        logger.info("Connecting to Postgres host=%s db=%s user=%s", cfg["host"], cfg["dbname"], cfg["user"])
     conn = psycopg2.connect(**cfg)
     conn.autocommit = True
     return conn
@@ -58,11 +65,15 @@ def get_connection():
 
 def run_query(query: str, params: tuple | list | None = None):
     conn = get_connection()
-    with conn.cursor() as cur:
-        cur.execute(query, params or [])
-        if cur.description:
-            return cur.fetchall()
-        return []
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query, params or [])
+            if cur.description:
+                return cur.fetchall()
+            return []
+    except Exception:
+        logger.exception("Query failed")
+        raise
 
 
 def get_table_name() -> str:
@@ -101,10 +112,13 @@ def fetch_json(
     if not USE_BACKEND:
         return fallback
     try:
+        if DEBUG_LOGS:
+            logger.info("GET %s params=%s", path, params)
         resp = requests.get(f"{API_BASE}{path}", params=params, timeout=timeout)
         resp.raise_for_status()
         return resp.json()
     except RequestException:
+        logger.exception("API request failed: %s", path)
         return fallback
 
 
@@ -246,6 +260,8 @@ def stream_summary_to_queue(path: str, params: dict, output: queue.Queue):
         attempts = 0
         while attempts < 2:
             try:
+                if DEBUG_LOGS:
+                    logger.info("Streaming from %s params=%s", path, params)
                 with requests.get(f"{API_BASE}{path}", params=params, stream=True, timeout=90) as resp:
                     resp.raise_for_status()
                     for chunk in resp.iter_content(chunk_size=1, decode_unicode=True):
@@ -325,6 +341,7 @@ def stream_llm_tokens(prompt: str):
     endpoint = get_serving_endpoint()
     token = os.getenv("DATABRICKS_TOKEN")
     if not endpoint or not token:
+        logger.warning("LLM stream skipped: missing endpoint or token")
         yield "Summary unavailable."
         return
     host, endpoint_name = endpoint
@@ -372,6 +389,7 @@ def stream_llm_tokens(prompt: str):
                     continue
         return
     except Exception:
+        logger.exception("LLM streaming failed")
         yield "Summary unavailable."
 
 
