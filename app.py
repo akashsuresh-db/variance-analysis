@@ -31,7 +31,8 @@ USE_BACKEND = bool(API_BASE)
 DATA_CACHE_TTL = 120
 DEBUG_LOGS = os.getenv("DEBUG_LOGS", "false").lower() == "true"
 PGUSER_FROM_OAUTH = os.getenv("PGUSER_FROM_OAUTH", "false").lower() == "true"
-PGUSER_FROM_SP = os.getenv("PGUSER_FROM_SP", "true").lower() == "true"
+PGUSER_FROM_SP = os.getenv("PGUSER_FROM_SP", "false").lower() == "true"
+FORCE_PGUSER = os.getenv("FORCE_PGUSER", "akash.s@databricks.com")
 
 logging.basicConfig(level=logging.INFO if DEBUG_LOGS else logging.WARNING)
 logger = logging.getLogger("variance_app")
@@ -104,14 +105,19 @@ def get_pg_env_config() -> dict | None:
     if not host or not user or not dbname:
         return None
 
-    sp_client = get_service_principal_client()
-    if sp_client and PGUSER_FROM_SP:
-        client_id = os.getenv("DATABRICKS_CLIENT_ID")
-        if not client_id:
-            raise RuntimeError("DATABRICKS_CLIENT_ID must be set for service principal auth")
+    if FORCE_PGUSER:
         if DEBUG_LOGS:
-            logger.info("Using service principal client id for PGUSER")
-        user = client_id
+            logger.info("Using forced PGUSER: %s", FORCE_PGUSER)
+        user = FORCE_PGUSER
+    else:
+        sp_client = get_service_principal_client()
+        if sp_client and PGUSER_FROM_SP:
+            client_id = os.getenv("DATABRICKS_CLIENT_ID")
+            if not client_id:
+                raise RuntimeError("DATABRICKS_CLIENT_ID must be set for service principal auth")
+            if DEBUG_LOGS:
+                logger.info("Using service principal client id for PGUSER")
+            user = client_id
 
     return {
         "host": host,
@@ -127,12 +133,15 @@ def refresh_oauth_token() -> bool:
     global postgres_password, last_password_refresh
     if postgres_password is None or time.time() - last_password_refresh > 900:
         try:
-            sp_client = get_service_principal_client()
-            if not sp_client:
-                raise RuntimeError("Service principal client not configured")
-            postgres_password = sp_client.config.oauth_token().access_token
-            if DEBUG_LOGS:
-                logger.info("Using service principal token for Postgres")
+            static_token = os.getenv("DATABRICKS_TOKEN")
+            if static_token:
+                postgres_password = static_token
+                if DEBUG_LOGS:
+                    logger.info("Using static DATABRICKS_TOKEN for Postgres")
+            else:
+                postgres_password = workspace_client.config.oauth_token().access_token
+                if DEBUG_LOGS:
+                    logger.info("Using user OAuth token for Postgres")
             last_password_refresh = time.time()
             if DEBUG_LOGS:
                 logger.info("Refreshed Postgres OAuth token")
