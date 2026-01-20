@@ -1,8 +1,12 @@
-command: [
-  "bash",
-  "-lc",
-  "pip install -r requirements.txt && streamlit run app.py"
-]
+command:
+  - "python"
+  - "-m"
+  - "streamlit"
+  - "run"
+  - "app.py"
+
+dependencies:
+  - "requirements.txt"
 
 env:
   - name: STREAMLIT_BROWSER_GATHER_USAGE_STATS
