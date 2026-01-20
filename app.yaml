@@ -22,7 +22,7 @@ env:
   - name: PGDATABASE
     value: "acndemo"
   - name: PGINSTANCE_NAME
-    value: "instance-d5242df0-4f16-4622-bd4f-769a93c882ee"
+    value: "fe-fieldkit-lakebase-not-drop"
   - name: PGPORT
     value: "5432"
   - name: PGSSLMODE
