@@ -30,9 +30,9 @@ API_BASE = os.getenv("API_BASE_URL")
 USE_BACKEND = bool(API_BASE)
 DATA_CACHE_TTL = 120
 DEBUG_LOGS = os.getenv("DEBUG_LOGS", "false").lower() == "true"
-PGUSER_FROM_OAUTH = os.getenv("PGUSER_FROM_OAUTH", "false").lower() == "true"
+PGUSER_FROM_OAUTH = os.getenv("PGUSER_FROM_OAUTH", "true").lower() == "true"
 PGUSER_FROM_SP = os.getenv("PGUSER_FROM_SP", "false").lower() == "true"
-FORCE_PGUSER = os.getenv("FORCE_PGUSER", "akash.s@databricks.com")
+FORCE_PGUSER = os.getenv("FORCE_PGUSER", "")
 
 logging.basicConfig(level=logging.INFO if DEBUG_LOGS else logging.WARNING)
 logger = logging.getLogger("variance_app")
@@ -118,6 +118,15 @@ def get_pg_env_config() -> dict | None:
             if DEBUG_LOGS:
                 logger.info("Using service principal client id for PGUSER")
             user = client_id
+        elif PGUSER_FROM_OAUTH:
+            try:
+                oauth_user = workspace_client.current_user.me().user_name
+                if oauth_user and oauth_user != user:
+                    if DEBUG_LOGS:
+                        logger.info("Overriding PGUSER to OAuth identity: %s", oauth_user)
+                    user = oauth_user
+            except Exception:
+                logger.exception("Failed to resolve OAuth user; using PGUSER env")
 
     return {
         "host": host,
@@ -133,15 +142,9 @@ def refresh_oauth_token() -> bool:
     global postgres_password, last_password_refresh
     if postgres_password is None or time.time() - last_password_refresh > 900:
         try:
-            static_token = os.getenv("DATABRICKS_TOKEN")
-            if static_token:
-                postgres_password = static_token
-                if DEBUG_LOGS:
-                    logger.info("Using static DATABRICKS_TOKEN for Postgres")
-            else:
-                postgres_password = workspace_client.config.oauth_token().access_token
-                if DEBUG_LOGS:
-                    logger.info("Using user OAuth token for Postgres")
+            postgres_password = workspace_client.config.oauth_token().access_token
+            if DEBUG_LOGS:
+                logger.info("Using user OAuth token for Postgres")
             last_password_refresh = time.time()
             if DEBUG_LOGS:
                 logger.info("Refreshed Postgres OAuth token")
