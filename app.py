@@ -202,15 +202,12 @@ def generate_db_credential(client: WorkspaceClient, instance_name: str) -> dict:
     return res
 
 
-@st.cache_resource
-def get_connection():
+def _connect_psycopg2():
     try:
         import psycopg2
-        from psycopg2 import pool
-    except ImportError as exc:
+    except ImportError:
         subprocess.check_call([sys.executable, "-m", "pip", "install", "psycopg2-binary"])
         import psycopg2  # type: ignore[no-redef]
-        from psycopg2 import pool  # type: ignore[no-redef]
 
     pg_env = get_pg_env_config()
     if pg_env:
@@ -240,7 +237,7 @@ def get_connection():
 
 
 def run_query(query: str, params: tuple | list | None = None):
-    conn = get_connection()
+    conn = _connect_psycopg2()
     try:
         with conn.cursor() as cur:
             cur.execute(query, params or [])
