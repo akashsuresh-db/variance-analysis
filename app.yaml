@@ -13,8 +13,12 @@ env:
     value: "false"
   - name: STREAMLIT_SERVER_HEADLESS
     value: "true"
+  - name: DATABRICKS_HOST
+    value: "https://e2-demo-field-eng.cloud.databricks.com"
+  - name: DATABRICKS_ENDPOINT_URL
+    value: "https://e2-demo-field-eng.cloud.databricks.com/serving-endpoints/databricks-claude-sonnet-4-5/invocations"
   - name: SERVING_ENDPOINT_NAME
-    valueFrom: "databricks-claude-sonnet-4-5"
+    value: "databricks-claude-sonnet-4-5"
   - name: PGHOST
     value: "instance-d5242df0-4f16-4622-bd4f-769a93c882ee.database.cloud.databricks.com"
   - name: PGUSER
