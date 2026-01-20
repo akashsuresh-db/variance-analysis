@@ -1,0 +1,12 @@
+go 1.24
+
+toolchain go1.24.2
+
+use (
+	./acceptance
+	./downstreams
+	./go-libs
+	./llnotes
+	./metascan
+	./runtime-packages
+)

@@ -1,0 +1,23 @@
+[tool.poetry]
+name = "databricks-labs-sandbox"
+version = "0.0.1"
+description = "Experimental and low-maturity scripts"
+authors = ["Databricks Labs"]
+packages = [
+    {include = "ip_access_list_analyzer"},
+    {include = "sql_migration_assistant"}
+]
+
+[tool.poetry.dependencies]
+python = ">=3.10"
+databricks-sdk = "0.40.0"
+pyyaml = "^6.0.2"
+mlflow = {extras = ["databricks"], version = "^2.16.0"}
+databricks-labs-blueprint = "0.10.1"
+databricks-labs-lsql = "0.14.1"
+
+[build-system]
+requires = [
+    "poetry-core>=1.0.0"
+]
+build-backend = "poetry.core.masonry.api"

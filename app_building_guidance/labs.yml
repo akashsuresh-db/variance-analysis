@@ -1,0 +1,27 @@
+---
+name: sandbox
+install:
+  script: install.py
+description: Databricks Labs Sandbox
+entrypoint: cli.py
+min_python: 3.10
+commands:
+  - name: ip-access-list-analyzer
+    description: "Analyzer/Fixer for Databricks IP Access Lists"
+    require_running_cluster: false
+    flags:
+      - name: json_file
+        description: "Optional JSON file with dump of IP Access Lists"
+        default: ''
+      - name: apply
+        description: "If script should do the changes"
+        default: false
+  - name: sql-migration-assistant
+    description: "GenAI enabled SQL Migration tool"
+    flags:
+      - name: json_file
+        description: "Optional JSON file with dump of IP Access Lists"
+        default: ''
+      - name: apply
+        description: "If script should do the changes"
+        default: false

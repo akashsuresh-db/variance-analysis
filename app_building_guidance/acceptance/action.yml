@@ -1,0 +1,37 @@
+---
+name: 'Databricks Labs Acceptance Suite'
+description: 'Run relevant acceptance suite'
+author: Serge Smertin
+inputs:
+  vault_uri:
+    description: 'Vault URI'
+    required: true
+  project:
+    description: 'Project Name'
+    required: false
+  directory:
+    description: 'Working directory'
+    required: false
+    default: .
+  slack_webhook:
+    description: 'Slack Webhook'
+    required: false
+  timeout:
+    description: 'Maximum suite execution time. Defaults to 2h'
+    required: false
+    default: 2h
+  create_issues:
+    description: 'Create issues in the repository for failed tests'
+    required: false
+    default: false
+  codegen_path:
+    description: 'Relative path to the .codegen.json file to use for configuring the acceptance tests'
+    required: false  # by default the first .codegen.json found in the project is used
+outputs:
+  sample:
+    description: 'Sample output'
+    value: ${{ steps.invoke.outputs.sample }}
+
+runs:
+  using: node20
+  main: shim.js

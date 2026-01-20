@@ -1,0 +1,13 @@
+version: 1
+name: "controller-variance-analysis"
+description: "Executive dashboard for controller variance analysis with AI insights."
+
+resource_specs:
+  - name: "serving-endpoint"
+    description: "Serving endpoint for AI summaries"
+    serving_endpoint_spec:
+      permission: "CAN_QUERY"
+
+user_api_scopes:
+  - serving.serving-endpoints
+  - sql

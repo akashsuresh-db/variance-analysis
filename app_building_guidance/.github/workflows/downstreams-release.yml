@@ -1,0 +1,31 @@
+name: Release downstreams
+
+on:
+  push:
+    tags:
+      - 'downstreams/v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: downstreams/go.mod
+
+      - name: Build
+        run: /bin/bash .github/workflows/build.sh downstreams
+    
+      - name: Compress
+        run: /bin/bash .github/workflows/compress.sh
+      
+      - name: Create release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
