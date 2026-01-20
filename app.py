@@ -701,9 +701,8 @@ with st.container():
         )
 
     accounts_key = ",".join(selected_accounts) if selected_accounts else ""
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        metrics_future = executor.submit(get_metrics, selected_month, accounts_key)
-        table_future = executor.submit(get_table, selected_month, accounts_key)
+    metrics = get_metrics(selected_month, accounts_key)
+    table = get_table(selected_month, accounts_key)
 
     kpi1, kpi2, kpi3 = st.columns(3)
     with kpi1:
@@ -742,7 +741,6 @@ with drill_col:
         unsafe_allow_html=True,
     )
 
-metrics = metrics_future.result()
 kpi_primary.metric(
     "Net Returns %",
     f"{metrics['net_returns_pct']}%",
@@ -750,8 +748,6 @@ kpi_primary.metric(
 )
 kpi_secondary.metric("Net Returns ($)", f"${metrics['net_returns_k']}k")
 kpi_tertiary.metric("Accounts Handled", metrics["accounts_handled"])
-
-table = table_future.result()
 table_df = pd.DataFrame(table)
 if not table_df.empty:
     table_df["Variance %"] = table_df["Variance %"].str.replace("%", "", regex=False).astype(float)
@@ -777,16 +773,16 @@ if not table_df.empty:
                 "Variance %": "{:.1f}%",
             }
         )
-        .applymap(variance_color, subset=["Variance %"])
-        .applymap(highlight_min, subset=["Variance %"])
+        .map(variance_color, subset=["Variance %"])
+        .map(highlight_min, subset=["Variance %"])
         .set_properties(
             subset=["Last Month", "Current Month", "Variance %"],
             **{"text-align": "right"},
         )
     )
-    table_placeholder.dataframe(styled, width="stretch")
+    table_placeholder.dataframe(styled, use_container_width=True)
 else:
-    table_placeholder.dataframe(table_df, width="stretch")
+        table_placeholder.dataframe(table_df, use_container_width=True)
 
 if "overall_summary_text" not in st.session_state:
     st.session_state["overall_summary_text"] = ""
