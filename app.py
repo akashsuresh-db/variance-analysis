@@ -32,18 +32,39 @@ logger = logging.getLogger("variance_app")
 
 def parse_jdbc_url() -> dict:
     jdbc_url = os.getenv("JDBC_URL")
-    if not jdbc_url or not jdbc_url.startswith("jdbc:postgresql://"):
-        raise RuntimeError("JDBC_URL must start with jdbc:postgresql://")
+    if jdbc_url:
+        if jdbc_url.startswith("jdbc:postgresql://"):
+            parsed = urlparse(jdbc_url.replace("jdbc:", "", 1))
+        elif jdbc_url.startswith("postgresql://"):
+            parsed = urlparse(jdbc_url)
+        else:
+            raise RuntimeError("JDBC_URL must start with jdbc:postgresql:// or postgresql://")
 
-    parsed = urlparse(jdbc_url.replace("jdbc:", "", 1))
-    params = parse_qs(parsed.query)
+        params = parse_qs(parsed.query)
+        return {
+            "host": parsed.hostname,
+            "port": parsed.port or 5432,
+            "dbname": parsed.path.lstrip("/"),
+            "user": unquote(parsed.username or ""),
+            "password": unquote(parsed.password or ""),
+            "sslmode": params.get("sslmode", ["require"])[0],
+        }
+
+    host = os.getenv("DB_HOST")
+    user = os.getenv("DB_USER")
+    password = os.getenv("DB_PASSWORD", "")
+    name = os.getenv("DB_NAME")
+    port = int(os.getenv("DB_PORT", "5432"))
+    sslmode = os.getenv("DB_SSLMODE", "require")
+    if not host or not user or not name:
+        raise RuntimeError("Set JDBC_URL or DB_HOST/DB_USER/DB_NAME for Postgres access")
     return {
-        "host": parsed.hostname,
-        "port": parsed.port or 5432,
-        "dbname": parsed.path.lstrip("/"),
-        "user": unquote(parsed.username or ""),
-        "password": unquote(parsed.password or ""),
-        "sslmode": params.get("sslmode", ["require"])[0],
+        "host": host,
+        "port": port,
+        "dbname": name,
+        "user": user,
+        "password": password,
+        "sslmode": sslmode,
     }
 
 
