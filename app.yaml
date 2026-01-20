@@ -14,7 +14,7 @@ env:
   - name: STREAMLIT_SERVER_HEADLESS
     value: "true"
   - name: SERVING_ENDPOINT_NAME
-    valueFrom: "serving-endpoint"
+    valueFrom: "databricks-claude-sonnet-4-5"
   - name: PGHOST
     value: "instance-d5242df0-4f16-4622-bd4f-769a93c882ee.database.cloud.databricks.com"
   - name: PGUSER
