@@ -1,6 +1,6 @@
 PGHOST=instance-a9015b3c-2097-4c99-b07a-23535978e2ca.database.cloud.databricks.com
 PGPORT=5432
-PGDATABASE=databricks_postgres
+PGDATABASE=akash_s
 PGUSER=c28c061c-3077-4592-be93-865bf79d689b
 PGSSLMODE=require
 PGAPPNAME=variance_analysis
