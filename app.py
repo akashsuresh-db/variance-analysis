@@ -19,13 +19,9 @@ from dotenv import load_dotenv
 from databricks.sdk import WorkspaceClient
 from requests import RequestException
 
-ENV_PATHS = [
-    os.path.join(os.path.dirname(__file__), "config", "env.app"),
-    os.path.join(os.path.dirname(__file__), "config", "env.local"),
-]
-for env_path in ENV_PATHS:
-    if os.path.exists(env_path):
-        load_dotenv(env_path, override=True)
+ENV_PATH = os.path.join(os.path.dirname(__file__), "config", "env.app")
+if os.path.exists(ENV_PATH):
+    load_dotenv(ENV_PATH, override=True)
 
 API_BASE = os.getenv("API_BASE_URL")
 USE_BACKEND = bool(API_BASE)

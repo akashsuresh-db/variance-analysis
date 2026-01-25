@@ -1,4 +1,3 @@
-config/env.local
 config/env.app
 .venv/
 __pycache__/
