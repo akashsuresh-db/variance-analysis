@@ -646,6 +646,18 @@ def format_summary_html(text: str) -> str:
     if not cleaned:
         return "Loading summary..."
 
+    # Remove any model-inserted HTML tags before escaping.
+    cleaned = re.sub(r"<\s*\/?\s*[^>]+>", "", cleaned)
+    # Normalize numbered bullets to dash bullets.
+    cleaned = re.sub(r"(^|\s)(\d+[.)]\s+)", r"\n- ", cleaned)
+    # Normalize common section labels into bullets.
+    cleaned = re.sub(
+        r"(?i)^(Primary driver|Positive signals|Areas for investigation|Anomalies/deviations)\s*:",
+        r"- \1:",
+        cleaned,
+        flags=re.MULTILINE,
+    )
+
     escaped = html.escape(cleaned)
     escaped = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", escaped)
     escaped = re.sub(r"\*(.+?)\*", r"<em>\1</em>", escaped)
@@ -852,25 +864,31 @@ if "overall_summary_text" not in st.session_state:
     st.session_state["overall_summary_text"] = ""
 if "overall_loaded" not in st.session_state:
     st.session_state["overall_loaded"] = False
+if "overall_inflight" not in st.session_state:
+    st.session_state["overall_inflight"] = False
+if "overall_queue" not in st.session_state:
+    st.session_state["overall_queue"] = queue.Queue()
 
 overall_text = st.session_state["overall_summary_text"]
 overall_done = st.session_state["overall_loaded"]
+overall_inflight = st.session_state["overall_inflight"]
 
 if overall_done and overall_text:
     overall_placeholder.markdown(
         f"<div class=\"summary-text\">{format_summary_html(overall_text)}</div>",
         unsafe_allow_html=True,
     )
-else:
+elif not overall_text:
     overall_text = ""
 
-overall_queue = queue.Queue()
+overall_queue = st.session_state["overall_queue"]
 drilldown_queue = queue.Queue()
 
-if not overall_done:
+if not overall_done and not overall_inflight:
     ThreadPoolExecutor(max_workers=1).submit(
         stream_summary_to_queue, "/summary/overall/stream", {}, overall_queue
     )
+    st.session_state["overall_inflight"] = True
 ThreadPoolExecutor(max_workers=1).submit(
     stream_summary_to_queue,
     "/summary/drilldown/stream",
@@ -891,6 +909,7 @@ while not (overall_done and drilldown_done):
             if item is None:
                 overall_done = True
                 st.session_state["overall_loaded"] = True
+                st.session_state["overall_inflight"] = False
                 break
             overall_text += item
             overall_placeholder.markdown(
