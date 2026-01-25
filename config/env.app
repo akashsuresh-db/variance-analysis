@@ -1,0 +1,13 @@
+PGHOST=
+PGPORT=5432
+PGDATABASE=
+PGUSER=
+PGSSLMODE=require
+PGAPPNAME=
+PG_ENDPOINT=
+PGINSTANCE_NAME=
+JDBC_URL=jdbc:postgresql://akash.s%40databricks.com:${PGPASSWORD}@instance-a9015b3c-2097-4c99-b07a-23535978e2ca.database.cloud.databricks.com:5432/databricks_postgres?sslmode=require
+DB_TABLE_FULL_NAME=akash_s.sales_var_synced
+DATABRICKS_HOST=
+SERVING_ENDPOINT_NAME=
+DEBUG_LOGS=false
