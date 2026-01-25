@@ -309,15 +309,10 @@ def parse_endpoint_url(endpoint_url: str) -> tuple[str, str] | None:
 
 def get_serving_endpoint():
     endpoint_url = os.getenv("DATABRICKS_ENDPOINT_URL")
-    endpoint_name = os.getenv("SERVING_ENDPOINT_NAME")
     if endpoint_url:
         parsed = parse_endpoint_url(endpoint_url)
         if parsed:
             return parsed
-    if endpoint_name:
-        host = os.getenv("DATABRICKS_HOST")
-        if host:
-            return host.rstrip("/"), endpoint_name
     return None
 
 def fetch_json(

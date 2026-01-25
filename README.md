@@ -58,8 +58,8 @@ The app can run **without** the local FastAPI backend. If `API_BASE_URL` is set,
 - `DATABRICKS_HOST`  
   Workspace URL, e.g. `https://e2-demo-field-eng.cloud.databricks.com`
 
-- `SERVING_ENDPOINT_NAME`  
-  Name of the serving endpoint configured in Databricks Apps.
+- `DATABRICKS_ENDPOINT_URL`  
+  Full serving endpoint invocations URL, e.g. `https://<workspace>/serving-endpoints/<endpoint>/invocations`
 
 ### Optional (local backend)
 
@@ -68,12 +68,12 @@ The app can run **without** the local FastAPI backend. If `API_BASE_URL` is set,
 
 ## Running Locally
 
-1. Create `config/env.local` (already in repo) and set:
+1. Create/update `config/env.app` and set:
    - `JDBC_URL`
    - `DB_TABLE_FULL_NAME`
    - `DATABRICKS_HOST`
    - `DATABRICKS_TOKEN`
-   - `SERVING_ENDPOINT_NAME`
+   - `DATABRICKS_ENDPOINT_URL`
 
 2. Install dependencies:
 
@@ -94,7 +94,7 @@ pip install -r backend/requirements.txt
 uvicorn backend.main:app --reload
 ```
 
-Set `API_BASE_URL=http://localhost:8000` in `config/env.local`.
+Set `API_BASE_URL=http://localhost:8000` in `config/env.app`.
 
 ## Deploying to Databricks Apps
 
@@ -105,7 +105,7 @@ Set `API_BASE_URL=http://localhost:8000` in `config/env.local`.
    - `DB_TABLE_FULL_NAME`
    - `DATABRICKS_HOST`
    - `DATABRICKS_TOKEN`
-   - `SERVING_ENDPOINT_NAME` (from app resource)
+   - `DATABRICKS_ENDPOINT_URL`
 4. Deploy the app from this repo root.
 
 ## Data Expectations
