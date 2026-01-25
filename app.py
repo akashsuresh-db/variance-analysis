@@ -134,6 +134,10 @@ def get_pg_env_config() -> dict | None:
     }
 
 
+def get_postgres_endpoint() -> str | None:
+    return os.getenv("PG_ENDPOINT") or os.getenv("DATABRICKS_POSTGRES_ENDPOINT")
+
+
 def refresh_oauth_token() -> bool:
     global postgres_password, last_password_refresh
     if postgres_password is None or time.time() - last_password_refresh > 900:
@@ -160,10 +164,11 @@ def get_db_oauth_token() -> str:
     sp_client = get_service_principal_client()
     if not sp_client:
         raise RuntimeError("Service principal client not configured")
+    endpoint = get_postgres_endpoint()
     pg_env = get_pg_env_config()
-    if not pg_env or not pg_env.get("instance_name"):
-        raise RuntimeError("PGINSTANCE_NAME not configured for SP auth")
-    instance_name = pg_env["instance_name"]
+    instance_name = pg_env.get("instance_name") if pg_env else None
+    if not endpoint and not instance_name:
+        raise RuntimeError("Set PG_ENDPOINT or PGINSTANCE_NAME for SP auth")
     expected_sp_id = os.getenv("DATABRICKS_CLIENT_ID") or os.getenv("DATABRICKS_AZURE_CLIENT_ID")
     try:
         current_identity = sp_client.current_user.me().user_name
@@ -175,18 +180,31 @@ def get_db_oauth_token() -> str:
         logger.exception("Failed to verify SP identity")
         raise
 
-    try:
-        sp_client.database.get_database_instance(name=instance_name)
-    except Exception:
-        logger.exception("Database instance not found or inaccessible: %s", instance_name)
-        raise
+    if instance_name:
+        try:
+            sp_client.database.get_database_instance(name=instance_name)
+        except Exception:
+            logger.exception("Database instance not found or inaccessible: %s", instance_name)
+            raise
 
-    credential = generate_db_credential(sp_client, instance_name)
+    credential = generate_db_credential(sp_client, endpoint=endpoint, instance_name=instance_name)
     return credential["token"]
 
 
-def generate_db_credential(client: WorkspaceClient, instance_name: str) -> dict:
+def generate_db_credential(
+    client: WorkspaceClient, endpoint: str | None = None, instance_name: str | None = None
+) -> dict:
     request_id = str(uuid.uuid4())
+    if endpoint:
+        postgres_api = getattr(client, "postgres", None)
+        if postgres_api and hasattr(postgres_api, "generate_database_credential"):
+            cred = postgres_api.generate_database_credential(endpoint=endpoint)
+            return {"token": cred.token}
+        raise RuntimeError(
+            "Postgres credential API not available. Upgrade databricks-sdk >= 0.56.0"
+        )
+    if not instance_name:
+        raise RuntimeError("PGINSTANCE_NAME not configured for database credential")
     database_api = getattr(client, "database", None)
     if database_api and hasattr(database_api, "generate_database_credential"):
         cred = database_api.generate_database_credential(
@@ -210,15 +228,40 @@ def _connect_psycopg2():
         import psycopg2  # type: ignore[no-redef]
 
     pg_env = get_pg_env_config()
-    if pg_env:
+    if USE_SP_AUTH:
         if not refresh_oauth_token():
             raise RuntimeError("Failed to refresh OAuth token for Postgres")
+        if pg_env:
+            if DEBUG_LOGS:
+                logger.info("Connecting to Postgres as %s", pg_env["user"])
+            return psycopg2.connect(
+                dbname=pg_env["dbname"],
+                user=pg_env["user"],
+                password=postgres_password,
+                host=pg_env["host"],
+                port=pg_env["port"],
+                sslmode=pg_env["sslmode"],
+                application_name=pg_env.get("application_name") or "",
+            )
+        cfg = parse_jdbc_url()
+        if not cfg["user"]:
+            raise RuntimeError("DB user required for SP auth (PGUSER/DB_USER/JDBC_URL user)")
+        return psycopg2.connect(
+            dbname=cfg["dbname"],
+            user=cfg["user"],
+            password=postgres_password,
+            host=cfg["host"],
+            port=cfg["port"],
+            sslmode=cfg["sslmode"],
+        )
+
+    if pg_env:
         if DEBUG_LOGS:
             logger.info("Connecting to Postgres as %s", pg_env["user"])
         return psycopg2.connect(
             dbname=pg_env["dbname"],
             user=pg_env["user"],
-            password=postgres_password,
+            password=os.getenv("PGPASSWORD", ""),
             host=pg_env["host"],
             port=pg_env["port"],
             sslmode=pg_env["sslmode"],
