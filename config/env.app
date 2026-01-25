@@ -9,6 +9,6 @@ PGINSTANCE_NAME=fe-shared-demo
 JDBC_URL=jdbc:postgresql://akash.s%40databricks.com:${PGPASSWORD}@instance-a9015b3c-2097-4c99-b07a-23535978e2ca.database.cloud.databricks.com:5432/databricks_postgres?sslmode=require
 DB_TABLE_FULL_NAME=akash_s.sales_var_synced
 DATABRICKS_HOST=https://e2-demo-field-eng.cloud.databricks.com
-DATABRICKS_ENDPOINT_URL=https://e2-demo-field-eng.cloud.databricks.com/serving-endpoints/t2t-0f2d9d91-endpoint/invocations
+DATABRICKS_ENDPOINT_URL=https://e2-demo-field-eng.cloud.databricks.com/serving-endpoints/agents_users-akash_s-variance_analysis/invocations
 DEBUG_LOGS=false
 USE_SP_AUTH=true
