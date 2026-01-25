@@ -389,6 +389,44 @@ def fetch_account_rollup(month: str, accounts: list[str]):
     return run_query(query, params)
 
 
+def fetch_account_weekly_rollup(month: str, accounts: list[str]):
+    account_filter = ""
+    params: list[object] = [month]
+    if accounts:
+        account_filter = "AND account_name = ANY(%s)"
+        params.append(accounts)
+
+    query = (
+        f"""
+        WITH params AS (
+            SELECT to_date(%s || '-01', 'YYYY-MM-DD') AS month_start
+        ),
+        weekly AS (
+            SELECT
+                account_name,
+                date_trunc('week', sale_date) AS week_start,
+                SUM(amount) AS week_sum
+            FROM {get_table_name()}, params
+            WHERE sale_date >= params.month_start
+              AND sale_date < params.month_start + INTERVAL '1 month'
+              {account_filter}
+            GROUP BY account_name, week_start
+        )
+        SELECT
+            w.account_name,
+            to_char(w.week_start, 'YYYY-MM-DD') AS week_start,
+            COALESCE(w.week_sum, 0) AS current_sum,
+            COALESCE(w_prev.week_sum, 0) AS last_sum
+        FROM weekly w
+        LEFT JOIN weekly w_prev
+            ON w_prev.account_name = w.account_name
+           AND w_prev.week_start = w.week_start - INTERVAL '1 week'
+        ORDER BY w.account_name, w.week_start
+        """
+    )
+    return run_query(query, params)
+
+
 def fetch_monthly_rollup():
     query = (
         f"""
@@ -437,12 +475,12 @@ def get_metrics(month: str, accounts_key: str):
     return result
 
 
-def get_table(month: str, accounts_key: str):
-    cache_key = f"table::{month}::{accounts_key}"
+def get_table(month: str, accounts_key: str, granularity: str):
+    cache_key = f"table::{granularity}::{month}::{accounts_key}"
     cached = st.session_state.get(cache_key)
     if cached:
         return cached
-    if USE_BACKEND:
+    if USE_BACKEND and granularity == "month":
         result = fetch_json(
             "/table",
             params={"month": month, "accounts": accounts_key},
@@ -450,18 +488,36 @@ def get_table(month: str, accounts_key: str):
         )
     else:
         account_list = [a for a in accounts_key.split(",") if a] if accounts_key else []
-        rows = fetch_account_rollup(month, account_list)
         result = []
-        for name, current_sum, last_sum in rows:
-            variance_pct = round(((current_sum - last_sum) / last_sum) * 100, 1) if last_sum > 0 else 0.0
-            result.append(
-                {
-                    "Account": name,
-                    "Last Month": round(last_sum, 2),
-                    "Current Month": round(current_sum, 2),
-                    "Variance %": f"{variance_pct}%",
-                }
-            )
+        if granularity == "week":
+            rows = fetch_account_weekly_rollup(month, account_list)
+            for name, week_start, current_sum, last_sum in rows:
+                variance_pct = (
+                    round(((current_sum - last_sum) / last_sum) * 100, 1) if last_sum > 0 else 0.0
+                )
+                result.append(
+                    {
+                        "Account": name,
+                        "Week": week_start,
+                        "Last Week": round(last_sum, 2),
+                        "Current Week": round(current_sum, 2),
+                        "Variance %": f"{variance_pct}%",
+                    }
+                )
+        else:
+            rows = fetch_account_rollup(month, account_list)
+            for name, current_sum, last_sum in rows:
+                variance_pct = (
+                    round(((current_sum - last_sum) / last_sum) * 100, 1) if last_sum > 0 else 0.0
+                )
+                result.append(
+                    {
+                        "Account": name,
+                        "Last Month": round(last_sum, 2),
+                        "Current Month": round(current_sum, 2),
+                        "Variance %": f"{variance_pct}%",
+                    }
+                )
     if result:
         st.session_state[cache_key] = result
     return result
@@ -509,12 +565,14 @@ def build_overall_prompt() -> str:
 def build_drilldown_prompt(params: dict) -> str:
     month = params.get("month")
     accounts = params.get("accounts", "")
+    granularity = params.get("granularity", "month")
     account_list = [a for a in accounts.split(",") if a]
-    payload = build_drilldown_payload(month, account_list)
+    payload = build_drilldown_payload(month, account_list, granularity)
+    granularity_label = "week" if granularity == "week" else "month"
     return (
         "You are summarizing data sourced from Postgres. "
         "Return a concise, readable summary with short bullet points. "
-        "Use the full dataset below for the selected month and filters, and highlight outliers and changes. "
+        f"Use the full dataset below for the selected {granularity_label} and filters, and highlight outliers and changes. "
         "Limit the response to 6-8 lines total.\n\n"
         f"{json.dumps(payload)}"
     )
@@ -530,12 +588,32 @@ def build_overall_payload() -> dict:
     }
 
 
-def build_drilldown_payload(month: str, accounts: list[str]) -> dict:
+def build_drilldown_payload(month: str, accounts: list[str], granularity: str) -> dict:
+    if granularity == "week":
+        rows = fetch_account_weekly_rollup(month, accounts)
+        if not rows:
+            return {"rows": []}
+        return {
+            "selected_month": month,
+            "granularity": "week",
+            "accounts_filter": accounts,
+            "rows": [
+                {
+                    "account_name": name,
+                    "week_start": week_start,
+                    "current_sum": float(current_sum),
+                    "last_sum": float(last_sum),
+                    "variance_pct": float(((current_sum - last_sum) / last_sum) * 100) if last_sum > 0 else 0.0,
+                }
+                for name, week_start, current_sum, last_sum in rows
+            ],
+        }
     rows = fetch_account_rollup(month, accounts)
     if not rows:
         return {"rows": []}
     return {
         "selected_month": month,
+        "granularity": "month",
         "accounts_filter": accounts,
         "rows": [
             {
@@ -778,7 +856,6 @@ with st.container():
 
     accounts_key = ",".join(selected_accounts) if selected_accounts else ""
     metrics = get_metrics(selected_month, accounts_key)
-    table = get_table(selected_month, accounts_key)
 
     kpi1, kpi2, kpi3 = st.columns(3)
     with kpi1:
@@ -802,15 +879,21 @@ overall_placeholder.markdown(
 # Account Variance + Drilldown
 table_col, drill_col = st.columns([2, 1])
 with table_col:
-    st.subheader("Account Variance")
+    header_left, header_right = st.columns([3, 1])
+    with header_left:
+        st.subheader("Account Variance")
+    with header_right:
+        drilldown_mode = st.toggle("🔎 Drill Down", value=False)
     table_placeholder = st.empty()
+    table_label = "weekly" if drilldown_mode else "monthly"
     table_placeholder.markdown(
-        '<div class="summary-text muted loading">Loading account variance table...</div>',
+        f'<div class="summary-text muted loading">Loading {table_label} account variance table...</div>',
         unsafe_allow_html=True,
     )
 with drill_col:
     month_label = date.fromisoformat(f"{selected_month}-01").strftime("%b %Y")
-    st.subheader(f"Key Insights – {month_label}")
+    insights_suffix = " (Weekly)" if drilldown_mode else ""
+    st.subheader(f"Key Insights – {month_label}{insights_suffix}")
     drilldown_placeholder = st.empty()
     drilldown_placeholder.markdown(
         '<div class="summary-text muted loading">Loading key insights...</div>',
@@ -824,11 +907,15 @@ kpi_primary.metric(
 )
 kpi_secondary.metric("Net Returns ($)", f"${metrics['net_returns_k']}k")
 kpi_tertiary.metric("Accounts Handled", metrics["accounts_handled"])
+granularity = "week" if drilldown_mode else "month"
+table = get_table(selected_month, accounts_key, granularity)
 table_df = pd.DataFrame(table)
 if not table_df.empty:
+    last_col = "Last Week" if granularity == "week" else "Last Month"
+    current_col = "Current Week" if granularity == "week" else "Current Month"
     table_df["Variance %"] = table_df["Variance %"].str.replace("%", "", regex=False).astype(float)
-    table_df["Last Month"] = pd.to_numeric(table_df["Last Month"], errors="coerce")
-    table_df["Current Month"] = pd.to_numeric(table_df["Current Month"], errors="coerce")
+    table_df[last_col] = pd.to_numeric(table_df[last_col], errors="coerce")
+    table_df[current_col] = pd.to_numeric(table_df[current_col], errors="coerce")
     min_variance = table_df["Variance %"].min()
 
     def variance_color(val):
@@ -844,21 +931,21 @@ if not table_df.empty:
     styled = (
         table_df.style.format(
             {
-                "Last Month": "{:,.0f}",
-                "Current Month": "{:,.0f}",
+                last_col: "{:,.0f}",
+                current_col: "{:,.0f}",
                 "Variance %": "{:.1f}%",
             }
         )
         .map(variance_color, subset=["Variance %"])
         .map(highlight_min, subset=["Variance %"])
         .set_properties(
-            subset=["Last Month", "Current Month", "Variance %"],
+            subset=[last_col, current_col, "Variance %"],
             **{"text-align": "right"},
         )
     )
     table_placeholder.dataframe(styled, use_container_width=True)
 else:
-        table_placeholder.dataframe(table_df, use_container_width=True)
+    table_placeholder.dataframe(table_df, use_container_width=True)
 
 if "overall_summary_text" not in st.session_state:
     st.session_state["overall_summary_text"] = ""
@@ -892,7 +979,7 @@ if not overall_done and not overall_inflight:
 ThreadPoolExecutor(max_workers=1).submit(
     stream_summary_to_queue,
     "/summary/drilldown/stream",
-    {"month": selected_month, "accounts": accounts_key},
+    {"month": selected_month, "accounts": accounts_key, "granularity": granularity},
     drilldown_queue,
 )
 
