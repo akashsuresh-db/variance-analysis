@@ -5,4 +5,4 @@ pandas
 sqlalchemy
 psycopg2-binary
 databricks-sdk>=0.73.0
-openai
+openai>=1.56.0

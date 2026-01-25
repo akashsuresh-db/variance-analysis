@@ -571,24 +571,48 @@ def stream_llm_tokens(prompt: str):
             from openai import OpenAI
 
             client = OpenAI(api_key=token, base_url=f"{host}/serving-endpoints")
-            stream = client.chat.completions.create(
-                model=endpoint_name,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=2000,
-                stream=True,
-            )
-            for event in stream:
-                delta = event.choices[0].delta if event.choices else None
-                if delta and delta.content:
-                    yield delta.content
-            return
+            try:
+                stream = client.responses.create(
+                    model=endpoint_name,
+                    input=[{"role": "user", "content": prompt}],
+                    max_output_tokens=2000,
+                    stream=True,
+                )
+                for event in stream:
+                    event_type = getattr(event, "type", "")
+                    if event_type == "response.output_text.delta" and getattr(event, "delta", None):
+                        yield event.delta
+                        continue
+                    if getattr(event, "delta", None):
+                        yield event.delta
+                    elif getattr(event, "text", None):
+                        yield event.text
+                return
+            except Exception:
+                response = client.responses.create(
+                    model=endpoint_name,
+                    input=[{"role": "user", "content": prompt}],
+                    max_output_tokens=2000,
+                )
+                text = " ".join(
+                    getattr(content, "text", "")
+                    for output in getattr(response, "output", [])
+                    for content in getattr(output, "content", [])
+                ).strip()
+                if text:
+                    yield text
+                    return
         except ImportError:
             pass
 
         response = requests.post(
             f"{host}/serving-endpoints/{endpoint_name}/invocations",
             headers={"Authorization": f"Bearer {token}"},
-            json={"messages": [{"role": "user", "content": prompt}], "stream": True},
+            json={
+                "input": [{"role": "user", "content": prompt}],
+                "stream": True,
+                "max_output_tokens": 2000,
+            },
             stream=True,
             timeout=90,
         )
