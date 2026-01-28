@@ -556,8 +556,9 @@ def build_overall_prompt() -> str:
     return (
         "You are summarizing data sourced from Postgres. "
         "Return a concise, readable summary using exactly 4 bullet points, with '-' bullets only. "
-        "Use this order and labels: Primary driver, Positive signals, Areas for investigation, Anomalies/deviations. "
-        "Do not include headings, numbering, or HTML. "
+        "Use this order and labels (bold each label using **): "
+        "**Primary driver**, **Positive signals**, **Areas for investigation**, **Anomalies/deviations**. "
+        "Do not include headings or numbering. "
         "Use the full dataset below and focus on notable trends, top movers, and consistency. "
         "Limit the response to 4 bullet lines total.\n\n"
         f"{json.dumps(payload)}"
