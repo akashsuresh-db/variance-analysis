@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+
+# Node
+node_modules/
+npm-debug.log*
+.npm
+
+# Build outputs - keep frontend/dist for deployment
+# frontend/dist/  # DO NOT exclude
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Databricks
+.databricks/
+
+# OS
+.DS_Store
+Thumbs.db

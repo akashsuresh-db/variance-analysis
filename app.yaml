@@ -1,0 +1,44 @@
+command:
+  - "python"
+  - "-m"
+  - "uvicorn"
+  - "app:app"
+  - "--host"
+  - "0.0.0.0"
+  - "--port"
+  - "8000"
+
+env:
+  # Lakebase connection - all hardcoded; PGPASSWORD is obtained at runtime via SDK OAuth
+  - name: PGHOST
+    value: "instance-383773af-2ab5-4bfd-971d-9dba95011ab4.database.cloud.databricks.com"
+  - name: PGPORT
+    value: "5432"
+  - name: PGDATABASE
+    value: "databricks_postgres"
+  # PGUSER = app service principal client ID
+  - name: PGUSER
+    value: "eb060b89-c400-4e1b-813a-226f955b95bc"
+  # PGPASSWORD is fetched at runtime via Databricks SDK OAuth token (see server/db.py)
+
+  # Finance Genie Space ID (Akash Finance Analytics - owned by akash.s)
+  - name: GENIE_SPACE_ID
+    value: "01f1138320f719fb844d052d96e39383"
+
+  # Foundation Model endpoint
+  - name: SERVING_ENDPOINT
+    value: "databricks-claude-sonnet-4-5"
+
+  # SP credentials for per-user Row-Level Security routing
+  # Replace these with your own SP client IDs and secrets.
+  # See README.md § SP-Routing Service Principals for setup instructions.
+  # analyst SP — restricted to filtered view only
+  - name: SP_ANALYST_CLIENT_ID
+    value: "<your-analyst-sp-client-id>"
+  - name: SP_ANALYST_CLIENT_SECRET
+    value: "<your-analyst-sp-client-secret>"
+  # manager SP — full access to main.akash_finance.*
+  - name: SP_MANAGER_CLIENT_ID
+    value: "<your-manager-sp-client-id>"
+  - name: SP_MANAGER_CLIENT_SECRET
+    value: "<your-manager-sp-client-secret>"
