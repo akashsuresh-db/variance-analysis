@@ -293,6 +293,16 @@ Lakebase (PostgreSQL)
 
 Every request carries the full conversation history so the MAS has complete context regardless of whether it's a new chat or a resumed past session.
 
+### Screenshots
+
+**Session history with table response**
+
+![Session history](assets/screenshots/chat-table-response.png)
+
+**Multi-turn context across sessions**
+
+![Multi-turn context](assets/screenshots/chat-session-history.png)
+
 ### How it works
 
 **1. Storing messages**
