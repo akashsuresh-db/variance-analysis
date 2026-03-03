@@ -4,23 +4,13 @@ A full-stack Databricks App for natural language analytics over insurance data. 
 
 ---
 
-## Live App
-
-| | |
-|---|---|
-| **App URL** | https://agentbricks-finance-7474643771848083.aws.databricksapps.com |
-| **Logs** | https://agentbricks-finance-7474643771848083.aws.databricksapps.com/logz |
-| **Workspace** | https://fe-sandbox-akash-finance-app.cloud.databricks.com |
-
----
-
 ## Try It In Your Workspace
 
 This section walks through everything needed to run this app in your own Databricks workspace from scratch — data, Genie Space, MAS endpoint, Lakebase, and the app itself.
 
 ### Prerequisites
 
-- **Serverless Databricks workspace** — required for Databricks Apps, Lakebase, and Foundation Models. Use the [FE Vending Machine](http://go/fevm) to provision one if needed.
+- **Serverless Databricks workspace** — required for Databricks Apps, Lakebase, and Foundation Models.
 - **Databricks CLI** v0.229+ authenticated to your workspace
 - **Node.js** (v18+) and **npm**
 - **uv** — Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
@@ -282,11 +272,11 @@ FastAPI Backend  (uvicorn, port 8000)
     │
     │  OpenAI Responses API  (stream=True, SP OAuth token)
     ▼
-Multi-Agent Supervisor  (mas-ea793b7b-endpoint)
+Multi-Agent Supervisor  (<your-mas-endpoint>)
     │
     ├── Supervisor agent  — plans the response
-    ├── Genie agent  ────► Genie Space (Akash Finance Analytics)
-    │                          └── SQL Warehouse → main.akash_finance.*
+    ├── Genie agent  ────► Genie Space (Finance Analytics)
+    │                          └── SQL Warehouse → main.finance_demo.*
     │                                              UC Row Filter applied per SP
     └── Final answer  ───► streamed token-by-token back to browser
     │
@@ -388,7 +378,7 @@ The runtime host. Databricks Apps injects the app service principal credentials 
 | Property | Value |
 |---|---|
 | **App name** | `agentbricks-finance` |
-| **Service Principal** | `app-3dc4d8 agentbricks-finance` (`eb060b89-c400-4e1b-813a-226f955b95bc`) |
+| **Service Principal** | Auto-created by Databricks Apps on first deploy |
 | **Runtime** | Python 3.11, uvicorn on port 8000 |
 
 ### 2. Multi-Agent Supervisor (MAS)
@@ -397,7 +387,7 @@ The core AI layer. Receives the full `messages` array, orchestrates sub-agents, 
 
 | Property | Value |
 |---|---|
-| **Endpoint** | `mas-ea793b7b-endpoint` |
+| **Endpoint** | Your MAS endpoint name (set in `server/llm.py` line 6) |
 | **API** | OpenAI Responses API (`client.responses.create(stream=True)`) |
 | **Input** | `messages[]` — full conversation history + new user message |
 | **Output** | Streamed via `response.output_text.delta` events |
@@ -423,9 +413,9 @@ The analytics sub-agent. The MAS delegates data questions here; Genie translates
 
 | Property | Value |
 |---|---|
-| **Space** | `Akash Finance Analytics` (`01f1138320f719fb844d052d96e39383`) |
-| **Warehouse** | Serverless Starter Warehouse (`1b1d59e180e4ac26`) |
-| **Tables** | `main.akash_finance.claims`, `.policies`, `.financial_summary` |
+| **Space** | `Finance Analytics` (your Genie Space ID from Step 2) |
+| **Warehouse** | Your serverless SQL warehouse |
+| **Tables** | `main.finance_demo.claims`, `.policies`, `.financial_summary` |
 
 ### 4. Lakebase (PostgreSQL)
 
@@ -433,8 +423,8 @@ Persistent storage for sessions, messages, and SP mappings.
 
 | Property | Value |
 |---|---|
-| **Instance** | `akash-finance-app` |
-| **Host** | `instance-383773af-2ab5-4bfd-971d-9dba95011ab4.database.cloud.databricks.com` |
+| **Instance** | Your Lakebase instance (created in Step 4) |
+| **Host** | Injected automatically via app resource binding |
 | **Auth** | Databricks SDK `generate_database_credential()` — short-lived OAuth token |
 
 #### Schema
@@ -477,15 +467,15 @@ On each chat request the backend looks up the user's email in `user_sp_mapping`,
 | `finance-sp-manager` | manager | All 20 claims (Paid + Denied + Pending) |
 | `finance-sp-analyst` | analyst | 15 claims (Paid only — UC Row Filter) |
 
-**UC Row Filter** on `main.akash_finance.claims`:
+**UC Row Filter** on `main.finance_demo.claims`:
 
 ```sql
-CREATE FUNCTION main.akash_finance.claims_rls_filter(claim_status STRING)
+CREATE FUNCTION main.finance_demo.claims_rls_filter(claim_status STRING)
 RETURNS BOOLEAN
 RETURN IF(CURRENT_USER() = '<analyst-sp-client-id>', claim_status = 'Paid', TRUE);
 
-ALTER TABLE main.akash_finance.claims
-  SET ROW FILTER main.akash_finance.claims_rls_filter ON (status);
+ALTER TABLE main.finance_demo.claims
+  SET ROW FILTER main.finance_demo.claims_rls_filter ON (status);
 ```
 
 Users not in `user_sp_mapping` fall back to the app SP (unrestricted access).
@@ -496,9 +486,9 @@ Users not in `user_sp_mapping` fall back to the app SP (unrestricted access).
 
 | Table | Schema | Description |
 |---|---|---|
-| `claims` | `main.akash_finance` | 20 rows — insurance claims with status, amounts, fraud flags |
-| `policies` | `main.akash_finance` | 10 rows — active and lapsed policies |
-| `financial_summary` | `main.akash_finance` | View — claims aggregated by year, quarter, and type |
+| `claims` | `main.finance_demo` | Insurance claims with status, amounts, fraud flags |
+| `policies` | `main.finance_demo` | Active and lapsed policies |
+| `financial_summary` | `main.finance_demo` | View — claims aggregated by year, quarter, and type |
 
 ---
 
@@ -639,7 +629,7 @@ Before deploying, fill in the SP credentials in `app.yaml`:
 | Genie space | App SP + both role SPs | `CAN_RUN` |
 | SQL Warehouse | App SP + both role SPs | `CAN_USE` |
 | UC catalog `main` | App SP + `account users` | `USE_CATALOG` |
-| UC schema `main.akash_finance` | App SP + both role SPs | `USE_CATALOG, USE_SCHEMA` |
+| UC schema `main.finance_demo` | App SP + both role SPs | `USE_CATALOG, USE_SCHEMA` |
 | UC table `claims` | `finance-sp-manager` | `SELECT` (all 20 rows) |
 | UC table `claims` | `finance-sp-analyst` | `SELECT` (15 rows via row filter) |
 | UC function `claims_rls_filter` | Both role SPs | `EXECUTE` |
