@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { flushSync } from 'react-dom'
 import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import type { Session, Message } from './types'
 import {
   createSession, listSessions, getSessionMessages,
@@ -137,7 +138,7 @@ function MessageBubble({ msg }: { msg: ActiveMessage }) {
             </span>
           ) : (
             // Stream complete: render full markdown
-            <ReactMarkdown components={mdComponents as never}>{clean}</ReactMarkdown>
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={mdComponents as never}>{clean}</ReactMarkdown>
           )}
         </div>
       </div>
