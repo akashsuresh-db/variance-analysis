@@ -4,8 +4,8 @@ from databricks.sdk import WorkspaceClient
 # Detect environment: Databricks App vs local dev
 IS_DATABRICKS_APP = bool(os.environ.get("DATABRICKS_APP_NAME"))
 
-WORKSPACE_HOST = "https://fe-sandbox-akash-finance-app.cloud.databricks.com"
-GENIE_SPACE_ID = os.environ.get("GENIE_SPACE_ID", "01f1138320f719fb844d052d96e39383")
+WORKSPACE_HOST = os.environ.get("DATABRICKS_HOST", "https://<your-workspace>.cloud.databricks.com")
+GENIE_SPACE_ID = os.environ.get("GENIE_SPACE_ID", "")
 SERVING_ENDPOINT = os.environ.get("SERVING_ENDPOINT", "databricks-meta-llama-3-3-70b-instruct")
 
 _workspace_client: WorkspaceClient | None = None
@@ -17,7 +17,7 @@ def get_workspace_client() -> WorkspaceClient:
         if IS_DATABRICKS_APP:
             _workspace_client = WorkspaceClient()
         else:
-            profile = os.environ.get("DATABRICKS_PROFILE", "fevm-akash-finance-app")
+            profile = os.environ.get("DATABRICKS_PROFILE", "DEFAULT")
             _workspace_client = WorkspaceClient(profile=profile)
     return _workspace_client
 
@@ -31,7 +31,7 @@ def get_oauth_token() -> str:
     raise RuntimeError("Could not get OAuth token")
 
 
-def get_database_token(instance_name: str = "akash-finance-app") -> str:
+def get_database_token(instance_name: str = "finance-app-db") -> str:
     """Get a Lakebase-scoped credential token for PostgreSQL authentication."""
     client = get_workspace_client()
     cred = client.database.generate_database_credential(instance_names=[instance_name])

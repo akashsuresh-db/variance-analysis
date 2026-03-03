@@ -9,21 +9,23 @@ command:
   - "8000"
 
 env:
-  # Lakebase connection - all hardcoded; PGPASSWORD is obtained at runtime via SDK OAuth
+  # Lakebase connection — set these after attaching the Lakebase resource to the app
+  # (Compute > Apps > <your-app> > Edit > Add resource > Database)
+  # or hardcode the values from your Lakebase instance details.
   - name: PGHOST
-    value: "instance-383773af-2ab5-4bfd-971d-9dba95011ab4.database.cloud.databricks.com"
+    value: "<your-lakebase-host>.database.cloud.databricks.com"
   - name: PGPORT
     value: "5432"
   - name: PGDATABASE
     value: "databricks_postgres"
-  # PGUSER = app service principal client ID
+  # PGUSER = app service principal client ID (found in Settings > Identity & Access > Service Principals)
   - name: PGUSER
-    value: "eb060b89-c400-4e1b-813a-226f955b95bc"
+    value: "<your-app-sp-client-id>"
   # PGPASSWORD is fetched at runtime via Databricks SDK OAuth token (see server/db.py)
 
-  # Finance Genie Space ID (Akash Finance Analytics - owned by akash.s)
+  # Finance Genie Space ID — from the URL of your Genie space: /genie/spaces/<SPACE_ID>
   - name: GENIE_SPACE_ID
-    value: "01f1138320f719fb844d052d96e39383"
+    value: "<your-genie-space-id>"
 
   # Foundation Model endpoint
   - name: SERVING_ENDPOINT
@@ -37,7 +39,7 @@ env:
     value: "<your-analyst-sp-client-id>"
   - name: SP_ANALYST_CLIENT_SECRET
     value: "<your-analyst-sp-client-secret>"
-  # manager SP — full access to main.akash_finance.*
+  # manager SP — full access to main.finance_demo.*
   - name: SP_MANAGER_CLIENT_ID
     value: "<your-manager-sp-client-id>"
   - name: SP_MANAGER_CLIENT_SECRET

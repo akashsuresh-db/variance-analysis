@@ -94,9 +94,8 @@ class SupervisorAgent:
     async def _direct_answer(self, state: AgentState) -> AgentState:
         """Handle non-data queries directly."""
         system = (
-            "You are AgentBricks Finance Assistant, an AI-powered FSI analytics tool. "
-            "You help users analyze insurance claims, policies, premiums, and damage predictions "
-            "from the FSI Smart Claims dataset (akas_s_demo.fsi_smart_claims). "
+            "You are AgentBricks Finance Assistant, an AI-powered analytics tool. "
+            "You help users analyze insurance claims, policies, premiums, and fraud indicators. "
             "Respond helpfully and concisely."
         )
         messages = [

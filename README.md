@@ -270,7 +270,7 @@ FastAPI Backend  (uvicorn, port 8000)
     ├─ Fetch full conversation history from Lakebase
     ├─ Append new user message → build messages[]
     │
-    │  OpenAI Responses API  (stream=True, SP OAuth token)
+    │  Databricks Responses API (OpenAI-compatible, stream=True)
     ▼
 Multi-Agent Supervisor  (<your-mas-endpoint>)
     │
@@ -388,7 +388,7 @@ The core AI layer. Receives the full `messages` array, orchestrates sub-agents, 
 | Property | Value |
 |---|---|
 | **Endpoint** | Your MAS endpoint name (set in `server/llm.py` line 6) |
-| **API** | OpenAI Responses API (`client.responses.create(stream=True)`) |
+| **API** | Databricks Responses API — OpenAI-compatible (`client.responses.create(stream=True)`) |
 | **Input** | `messages[]` — full conversation history + new user message |
 | **Output** | Streamed via `response.output_text.delta` events |
 
@@ -542,7 +542,7 @@ data: {"type": "error",  "message": "…"}        // failure
 | Package | Purpose |
 |---|---|
 | `fastapi` + `uvicorn` | HTTP framework and ASGI server |
-| `openai` | MAS endpoint via Responses API |
+| `openai` | OpenAI-compatible client for Databricks serving endpoints |
 | `asyncpg` | Async PostgreSQL driver for Lakebase |
 | `databricks-sdk` | SP auth, `generate_database_credential()` |
 | `pydantic` | Request/response models |
