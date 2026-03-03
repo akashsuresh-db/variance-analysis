@@ -14,6 +14,257 @@ A full-stack Databricks App for natural language analytics over insurance data. 
 
 ---
 
+## Try It In Your Workspace
+
+This section walks through everything needed to run this app in your own Databricks workspace from scratch — data, Genie Space, MAS endpoint, Lakebase, and the app itself.
+
+### Prerequisites
+
+- **Serverless Databricks workspace** — required for Databricks Apps, Lakebase, and Foundation Models. Use the [FE Vending Machine](http://go/fevm) to provision one if needed.
+- **Databricks CLI** v0.229+ authenticated to your workspace
+- **Node.js** (v18+) and **npm**
+- **uv** — Python package manager (`curl -LsSf https://astral.sh/uv/install.sh | sh`)
+
+---
+
+### Step 1 — Create the Finance Data
+
+Run the following in a notebook or SQL editor in your workspace. Adjust the catalog/schema to match your environment.
+
+```sql
+CREATE SCHEMA IF NOT EXISTS main.finance_demo;
+
+-- Claims table
+CREATE TABLE IF NOT EXISTS main.finance_demo.claims (
+    claim_id        STRING,
+    policy_id       STRING,
+    claim_type      STRING,
+    status          STRING,   -- Paid | Denied | Pending
+    claim_amount    DOUBLE,
+    approved_amount DOUBLE,
+    fraud_flag      BOOLEAN,
+    fraud_score     DOUBLE,
+    damage_severity STRING,
+    claim_date      DATE,
+    settlement_date DATE
+);
+
+INSERT INTO main.finance_demo.claims VALUES
+  ('CLM001','POL001','Auto','Paid',   8500.00, 8200.00, false,0.12,'Minor',  '2025-01-10','2025-01-25'),
+  ('CLM002','POL002','Home','Denied', 15000.00,0.00,    true, 0.87,'Major',  '2025-01-15',NULL),
+  ('CLM003','POL003','Health','Paid', 3200.00, 3000.00, false,0.05,'Minor',  '2025-01-20','2025-02-01'),
+  ('CLM004','POL001','Auto','Pending',6700.00, 0.00,    false,0.22,'Moderate','2025-02-05',NULL),
+  ('CLM005','POL004','Life','Paid',   50000.00,50000.00,false,0.03,'N/A',    '2025-02-12','2025-03-01'),
+  ('CLM006','POL005','Home','Paid',   9800.00, 9500.00, false,0.18,'Moderate','2025-02-18','2025-03-05'),
+  ('CLM007','POL002','Auto','Denied', 4200.00, 0.00,    true, 0.91,'Minor',  '2025-02-22',NULL),
+  ('CLM008','POL006','Health','Paid', 1800.00, 1700.00, false,0.08,'Minor',  '2025-03-01','2025-03-10'),
+  ('CLM009','POL003','Auto','Pending',11000.00,0.00,    true, 0.75,'Major',  '2025-03-08',NULL),
+  ('CLM010','POL007','Home','Paid',   7300.00, 7000.00, false,0.11,'Moderate','2025-03-15','2025-03-28');
+
+-- Policies table
+CREATE TABLE IF NOT EXISTS main.finance_demo.policies (
+    policy_id       STRING,
+    policy_type     STRING,   -- Auto | Home | Health | Life
+    status          STRING,   -- Active | Lapsed
+    annual_premium  DOUBLE,
+    coverage_amount DOUBLE,
+    customer_id     STRING,
+    state           STRING,
+    start_date      DATE,
+    end_date        DATE
+);
+
+INSERT INTO main.finance_demo.policies VALUES
+  ('POL001','Auto',  'Active',1200.00,  50000.00, 'CUST001','CA','2023-01-01','2026-01-01'),
+  ('POL002','Home',  'Active',1800.00, 300000.00, 'CUST002','TX','2022-06-15','2025-06-15'),
+  ('POL003','Health','Active', 800.00,  100000.00,'CUST003','NY','2024-01-01','2025-01-01'),
+  ('POL004','Life',  'Active',2400.00, 500000.00, 'CUST004','FL','2021-03-10','2031-03-10'),
+  ('POL005','Home',  'Lapsed',1500.00, 250000.00, 'CUST005','CA','2020-07-01','2024-07-01'),
+  ('POL006','Auto',  'Active',1100.00,  40000.00, 'CUST001','CA','2024-05-01','2025-05-01'),
+  ('POL007','Health','Active', 950.00,  150000.00,'CUST006','WA','2023-09-01','2025-09-01');
+
+-- Aggregated summary view
+CREATE OR REPLACE VIEW main.finance_demo.financial_summary AS
+SELECT
+    YEAR(claim_date)    AS claim_year,
+    QUARTER(claim_date) AS claim_quarter,
+    claim_type,
+    COUNT(*)            AS total_claims,
+    SUM(claim_amount)   AS total_claimed,
+    SUM(approved_amount)AS total_approved,
+    SUM(CASE WHEN fraud_flag THEN 1 ELSE 0 END) AS fraud_count
+FROM main.finance_demo.claims
+GROUP BY 1, 2, 3;
+```
+
+---
+
+### Step 2 — Create a Genie Space
+
+1. In your workspace, go to **AI/BI → Genie**.
+2. Click **New Space**.
+3. Name it (e.g. `Finance Analytics`) and select your SQL warehouse.
+4. Under **Tables**, add:
+   - `main.finance_demo.claims`
+   - `main.finance_demo.policies`
+   - `main.finance_demo.financial_summary`
+5. Add a brief description of the data in the **Instructions** box so Genie understands the domain (e.g. *"Insurance claims data. The `status` field is Paid, Denied, or Pending. `fraud_flag = true` indicates a suspicious claim."*).
+6. Save the space and note the **Space ID** from the URL: `…/genie/spaces/<SPACE_ID>`.
+7. Test it with a sample question like *"How many claims are there by status?"* to confirm Genie can query the tables.
+
+---
+
+### Step 3 — Create the Multi-Agent Supervisor (MAS)
+
+The MAS is a Databricks Model Serving endpoint that wraps a LangGraph-based multi-agent system. You create it through the **Playground → Agent** flow:
+
+1. Go to **Machine Learning → Playground**.
+2. Click **Create agent**.
+3. Choose **Multi-Agent Supervisor** as the agent type.
+4. Add a **Genie** sub-agent and paste in your Genie Space ID from Step 2.
+5. Configure the supervisor LLM (Claude Sonnet 4.5 or Llama 3.3 70B work well).
+6. Click **Deploy as endpoint** and give it a name (e.g. `finance-mas-endpoint`).
+7. Wait for the endpoint to reach `Ready` state, then note the **endpoint name**.
+8. Update `server/llm.py` line 6 with your endpoint name:
+   ```python
+   MAS_ENDPOINT = "your-mas-endpoint-name"
+   ```
+
+---
+
+### Step 4 — Create a Lakebase Instance
+
+```bash
+# Create the Lakebase PostgreSQL instance
+databricks lakebase create --name finance-app-db -p <your-cli-profile>
+```
+
+Note the instance name. You'll need it in Step 6.
+
+---
+
+### Step 5 — Create the Databricks App
+
+```bash
+# Create the app (before deploying)
+databricks apps create agentbricks-finance \
+  --description "Finance Analytics Assistant" \
+  -p <your-cli-profile>
+```
+
+Then attach the Lakebase instance to the app via the UI:
+
+1. Go to **Compute → Apps → agentbricks-finance → Edit**.
+2. Add a **Database** resource → select your Lakebase instance → permission **Can connect**.
+3. Save (this injects `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER` as env vars).
+
+---
+
+### Step 6 — Configure `app.yaml`
+
+Update the following values in `app.yaml`:
+
+```yaml
+env:
+  # Injected automatically by Databricks Apps when the Lakebase resource is attached
+  - name: PGHOST
+    valueFrom: database        # ← change to valueFrom if using resource binding
+  - name: PGPORT
+    valueFrom: database
+  - name: PGDATABASE
+    valueFrom: database
+  - name: PGUSER
+    valueFrom: database
+
+  - name: GENIE_SPACE_ID
+    value: "<your-genie-space-id>"           # from Step 2
+
+  # SP credentials — only needed if you want per-user Row-Level Security (Step 7)
+  # Leave as placeholders to skip RLS; all users will see all data
+  - name: SP_ANALYST_CLIENT_ID
+    value: "<your-analyst-sp-client-id>"
+  - name: SP_ANALYST_CLIENT_SECRET
+    value: "<your-analyst-sp-client-secret>"
+  - name: SP_MANAGER_CLIENT_ID
+    value: "<your-manager-sp-client-id>"
+  - name: SP_MANAGER_CLIENT_SECRET
+    value: "<your-manager-sp-client-secret>"
+```
+
+---
+
+### Step 7 — Deploy
+
+```bash
+# Build the React frontend
+cd frontend && npm install && npm run build && cd ..
+
+# Sync to workspace
+databricks sync . /Workspace/Users/<your-email>/agentbricks-finance \
+  -p <your-cli-profile> \
+  --exclude node_modules --exclude .venv --exclude __pycache__ \
+  --exclude ".git" --exclude "frontend/src" --exclude "frontend/public"
+
+# Deploy the app
+databricks apps deploy agentbricks-finance \
+  --source-code-path /Workspace/Users/<your-email>/agentbricks-finance \
+  -p <your-cli-profile>
+```
+
+Get the app URL:
+
+```bash
+databricks apps get agentbricks-finance -p <your-cli-profile>
+```
+
+---
+
+### Step 8 — (Optional) Row-Level Security via SP Routing
+
+Skip this step if you don't need per-user data access control.
+
+1. **Create two service principals** in your workspace (UI: Settings → Identity & Access → Service Principals): `finance-sp-analyst` and `finance-sp-manager`.
+2. **Generate client secrets** for each SP and add them to `app.yaml` (Step 6).
+3. **Grant UC permissions** — manager SP gets full access; analyst SP gets access to a filtered view or with a row filter applied:
+   ```sql
+   -- Row filter: analyst sees only Paid claims
+   CREATE FUNCTION main.finance_demo.claims_rls_filter(claim_status STRING)
+   RETURNS BOOLEAN
+   RETURN IF(CURRENT_USER() = '<analyst-sp-client-id>', claim_status = 'Paid', TRUE);
+
+   ALTER TABLE main.finance_demo.claims
+     SET ROW FILTER main.finance_demo.claims_rls_filter ON (status);
+
+   GRANT SELECT ON TABLE main.finance_demo.claims TO `<analyst-sp-client-id>`;
+   GRANT SELECT ON TABLE main.finance_demo.claims TO `<manager-sp-client-id>`;
+   ```
+4. **Seed the mapping table** — once the app is deployed and Lakebase is initialised, call the admin API:
+   ```bash
+   APP_URL="https://<your-app-url>"
+   curl -X POST "$APP_URL/api/admin/sp-mappings" \
+     -H "Content-Type: application/json" \
+     -d '{"user_email":"manager@example.com","sp_client_id":"<manager-sp-client-id>","role_name":"manager"}'
+   curl -X POST "$APP_URL/api/admin/sp-mappings" \
+     -H "Content-Type: application/json" \
+     -d '{"user_email":"analyst@example.com","sp_client_id":"<analyst-sp-client-id>","role_name":"analyst"}'
+   ```
+
+---
+
+### What to Expect
+
+Once deployed, open the app URL and try these starter questions:
+
+- *"How many claims are there and what is the total claim amount?"*
+- *"Break down claims by type and show average amounts"*
+- *"Which claims have fraud flags? What is their total value?"*
+- *"What is the paid vs denied ratio?"*
+- *"Show me claims from Q1 2025 with high damage severity"*
+
+The first response takes 5–15 seconds (Genie runs SQL against your warehouse). Subsequent questions in the same session are faster as the MAS has context. Open a new chat to start a fresh conversation; click any past chat in the sidebar to resume it with full history.
+
+---
+
 ## Architecture
 
 ```
