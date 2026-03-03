@@ -2,6 +2,7 @@
 AgentBricks Finance Assistant
 FastAPI application entry point.
 """
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -13,6 +14,22 @@ from server.db import db
 from server.routes.sessions import router as sessions_router, admin_router
 from server.routes.chat import router as chat_router
 
+TOKEN_REFRESH_INTERVAL = 45 * 60  # 45 minutes — Lakebase OAuth tokens expire after ~60 min
+
+
+async def _token_refresh_loop():
+    """Background task: refresh Lakebase connection pool token every 45 minutes."""
+    await asyncio.sleep(TOKEN_REFRESH_INTERVAL)
+    while True:
+        try:
+            if not db.demo_mode:
+                print("Refreshing Lakebase token...")
+                await db.refresh_token()
+                print("Lakebase token refreshed successfully")
+        except Exception as e:
+            print(f"Token refresh failed: {e}")
+        await asyncio.sleep(TOKEN_REFRESH_INTERVAL)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -20,7 +37,9 @@ async def lifespan(app: FastAPI):
     print("Starting AgentBricks Finance Assistant...")
     await db.initialize()
     print(f"DB mode: {'demo (in-memory)' if db.demo_mode else 'Lakebase (PostgreSQL)'}")
+    refresh_task = asyncio.create_task(_token_refresh_loop())
     yield
+    refresh_task.cancel()
     await db.close()
     print("Shutting down...")
 
