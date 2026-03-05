@@ -490,6 +490,24 @@ ALTER TABLE main.finance_demo.claims
 
 Users not in `user_sp_mapping` fall back to the app SP (unrestricted access).
 
+**Token generation (`server/sp_auth.py`)**
+
+For each chat request, `get_token_for_sp()` mints a fresh OAuth token for the mapped SP using the OAuth2 client credentials flow via the Databricks SDK:
+
+```python
+def get_token_for_sp(sp_client_id: str) -> str:
+    w = WorkspaceClient(host=host, client_id=sp_client_id, client_secret=client_secret)
+    auth_headers = w.config.authenticate()
+    return auth_headers["Authorization"].replace("Bearer ", "")
+```
+
+1. The SP's `client_id` is used to look up its `client_secret` from environment variables (`SP_ANALYST_CLIENT_SECRET` / `SP_MANAGER_CLIENT_SECRET`).
+2. A `WorkspaceClient` is instantiated with those credentials — no PAT or user token involved.
+3. `w.config.authenticate()` performs the OAuth2 client credentials grant against the workspace OIDC token endpoint (`/oidc/v1/token`) and returns an `Authorization: Bearer <token>` header.
+4. The raw bearer token is extracted and passed to `stream_mas_agent()` as `user_token`, which sets it as the `Authorization` header on the Databricks Responses API call.
+
+Unity Catalog then sees the SP identity on every SQL query and enforces the row filter accordingly.
+
 > **Note:** Genie runs SQL as the space owner, so the UC Row Filter applies to direct SQL warehouse calls only. To enforce RLS end-to-end through Genie, enable _Run as Viewer_ in the Genie space settings.
 
 ### 6. Finance Data (Unity Catalog)
